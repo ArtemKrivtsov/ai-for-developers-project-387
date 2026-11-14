@@ -43,6 +43,11 @@ function MeetingCard({ meeting }: { meeting: Meeting }) {
       <Text c="dimmed" size="sm" mt="xs">
         {`${meeting.guestName}, ${meeting.guestEmail}`}
       </Text>
+      {meeting.topic && (
+        <Text mt="xs" style={{ whiteSpace: 'pre-wrap' }}>
+          {meeting.topic}
+        </Text>
+      )}
     </Card>
   );
 }

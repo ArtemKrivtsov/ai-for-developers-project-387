@@ -19,7 +19,7 @@ const introduction: Meeting = {
   end: '2026-11-10T09:30:00+03:00',
   guestName: 'Иван Петров',
   guestEmail: 'ivan@example.com',
-  topic: '',
+  topic: 'Хочу обсудить резюме.\nВопросы по опыту.',
 };
 
 const consultation: Meeting = {
@@ -78,6 +78,9 @@ test('the owner sees upcoming meetings as cards in the order from the server', a
   expect(within(cards[0]).getByText('Знакомство')).toBeInTheDocument();
   expect(within(cards[0]).getByText('30 мин')).toBeInTheDocument();
   expect(within(cards[0]).getByText('Иван Петров, ivan@example.com')).toBeInTheDocument();
+  expect(within(cards[0]).getByText(/Хочу обсудить резюме\.\s+Вопросы по опыту\./)).toHaveStyle({
+    whiteSpace: 'pre-wrap',
+  });
 
   expect(
     within(cards[1]).getByRole('heading', { name: 'четверг, 12 ноября, 16:00–17:30' }),
@@ -85,6 +88,17 @@ test('the owner sees upcoming meetings as cards in the order from the server', a
   expect(within(cards[1]).getByText('Консультация')).toBeInTheDocument();
   expect(within(cards[1]).getByText('1 ч 30 мин')).toBeInTheDocument();
   expect(within(cards[1]).getByText('Мария Иванова, Maria@Example.com')).toBeInTheDocument();
+});
+
+test('a meeting without a topic adds no line to its card', async () => {
+  server.use(handleListUpcomingMeetings({ body: [consultation] }));
+
+  renderAt('/owner');
+
+  const card = await screen.findByRole('article');
+  expect(card.textContent).toBe(
+    'четверг, 12 ноября, 16:00–17:30Консультация1 ч 30 минМария Иванова, Maria@Example.com',
+  );
 });
 
 test('meeting times are Moscow ones in a browser far from Moscow', async () => {

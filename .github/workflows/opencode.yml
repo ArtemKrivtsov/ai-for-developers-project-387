@@ -1,0 +1,74 @@
+name: opencode
+
+# The agent answers /oc and /opencode commands in issue and PR comments.
+on:
+  # The task needs comment commands, so issue_comment stays. The job runs only for
+  # a trusted commenter and refuses fork PRs before the checkout, see the job below.
+  # jactionlint ignore=dangerous-triggers
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+# The job asks for its own permissions; everything else gets none.
+permissions: {}
+
+jobs:
+  opencode:
+    # Run only for a command from a trusted participant, never for a bot,
+    # and never for a line comment on a PR from a fork.
+    if: >-
+      (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode')) &&
+      github.event.comment.user.type != 'Bot' &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
+      (github.event_name != 'pull_request_review_comment' ||
+        github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # One run at a time per issue or PR; a new command waits for the previous one.
+    concurrency:
+      group: opencode-${{ github.event.issue.number || github.event.pull_request.number }}
+      cancel-in-progress: false
+    # Standard OpenCode auth: the agent acts with the OpenCode GitHub App token,
+    # obtained through the OIDC exchange.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # A comment on a fork PR's conversation also arrives as issue_comment:
+      # stop before the model key meets the fork's code.
+      - name: Refuse pull requests from forks
+        if: github.event_name == 'issue_comment' && github.event.issue.pull_request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.issue.pull_request.url }}
+          REPO: ${{ github.repository }}
+        run: |
+          head_repo=$(gh api "$PR_URL" --jq .head.repo.full_name)
+          if [ "$head_repo" != "$REPO" ]; then
+            echo "::error::The agent does not run on pull requests from forks ($head_repo)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      # The runner starts clean: install the skills of the first project globally,
+      # the same set as on the developer machine. OpenCode reads ~/.agents/skills.
+      - name: Install agent skills
+        run: >-
+          npx --yes skills@1.8.1 add
+          mattpocock/skills@5863806dd4e15c63174bee4e7515a4256792ecfa
+          --skill '*' --global --agent opencode --yes
+
+      - uses: anomalyco/opencode/github@77fc88c8ade8e5a620ebbe1197f3a572d29ae91a # latest
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        with:
+          # Free OpenCode Zen model: no card or budget needed.
+          model: opencode/deepseek-v4.1-flash-free
+          mentions: /oc,/opencode
+          # Sessions stay private: the repository is public, and a session holds the task context.
+          share: false

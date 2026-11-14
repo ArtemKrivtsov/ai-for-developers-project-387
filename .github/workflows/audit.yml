@@ -195,3 +195,30 @@ jobs:
             .audit/agent-run.log
           if-no-files-found: ignore
           retention-days: 90
+
+  # Without a model: when the agent itself fails, the journal still gets the run.
+  log-failure:
+    needs: [collect, agent]
+    if: always() && (needs.agent.result == 'failure' || needs.agent.result == 'cancelled')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Write the failure to the journal
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          COLLECT: ${{ needs.collect.result }}
+          AGENT: ${{ needs.agent.result }}
+          MODE: ${{ inputs.report || 'live' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          journal=$(gh issue list --repo "$REPO" --state open --label audit-log --json number --jq '.[0].number')
+          if [ -z "$journal" ]; then
+            echo "::error::No open issue with the audit-log label."
+            exit 1
+          fi
+          printf '**Аудит (%s) без вывода агента: нужен человек.**\n\n- Сбор отчёта: %s\n- Агент: %s\n- Прогон: %s\n- Отчёт, если собран: артефакт audit-report-%s\n' \
+            "$MODE" "$COLLECT" "$AGENT" "$RUN_URL" "$GITHUB_RUN_ID" > comment.md
+          gh issue comment "$journal" --repo "$REPO" --body-file comment.md

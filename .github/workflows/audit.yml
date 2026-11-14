@@ -104,7 +104,7 @@ jobs:
     if: always() && needs.collect.result != 'skipped'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # The agent reads the repository and issues and creates or comments issues with the runner
+    # The agent reads the repository and issues and creates issues with the runner
     # token. It changes no code and opens no PR, so it gets no contents: write and no OIDC.
     permissions:
       contents: read
@@ -157,7 +157,7 @@ jobs:
             {"small_model": "opencode/deepseek-v4.1-flash-free", "share": "disabled",
             "permission": {"edit": {"*": "deny", ".audit/agent-output.md": "allow", "*/.audit/agent-output.md": "allow"},
             "bash": {"*": "deny", "gh issue list*": "allow", "gh issue view*": "allow",
-            "gh issue create*": "allow", "gh issue comment*": "allow", "gh label list*": "allow",
+            "gh issue create*": "allow", "gh label list*": "allow",
             "*--output*": "deny", "*>*": "deny"},
             "webfetch": "deny",
             "external_directory": "deny",
@@ -174,8 +174,7 @@ jobs:
           3. Если задачи нет, создай одну: gh issue create --label audit,needs-triage (для учебного отчёта, где training=true: --label audit,учебный и префикс [Учебный] в заголовке). В теле: проблема своими словами, на какой странице и какое приложение проверялось, предлагаемое действие, ссылка на прогон ${RUN_URL} и строка «Отпечаток находки: \`<fingerprint>\`». Учебная задача прямо говорит, что это подготовленные данные, а не подтверждённый дефект.
           4. Если задача есть, но закрыта, создай новую и сошлись на закрытую: проблема появилась снова.
           Если unavailable=true, задач не создавай: данных нет, это не значит, что находки исправлены.
-          В конце найди журнал: gh issue list --state open --label audit-log --json number --jq '.[0].number' и оставь в нём один комментарий: режим, страница, оценки категорий, список находок с номерами созданных или уже существующих задач (или «находок нет», или «нет данных»), ссылка на прогон ${RUN_URL} и на артефакт audit-report-${GITHUB_RUN_ID}.
-          Тот же текст запиши в файл .audit/agent-output.md инструментом записи файлов. Код и другие файлы не меняй, ветки и PR не создавай."
+          В конце запиши итог в файл .audit/agent-output.md инструментом записи файлов: режим, проверенная страница и приложение, оценки категорий, список находок с номерами созданных или уже существующих задач (или «находок нет», или «нет данных»). Этот файл публикует в журнал аудита отдельное задание, сам журнал не комментируй. Код и другие файлы не меняй, ветки и PR не создавай."
           opencode run --model opencode/deepseek-v4.1-flash-free "$prompt" | tee .audit/agent-run.log
 
       - name: Require the conclusion
@@ -196,16 +195,23 @@ jobs:
           if-no-files-found: ignore
           retention-days: 90
 
-  # Without a model: when the agent itself fails, the journal still gets the run.
-  log-failure:
+  # Without a model: writes every run to the journal, the agent's conclusion or the reason
+  # there is none, so a run never goes unrecorded.
+  journal:
     needs: [collect, agent]
-    if: always() && (needs.agent.result == 'failure' || needs.agent.result == 'cancelled')
+    if: always() && needs.collect.result != 'skipped'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      actions: read
       issues: write
     steps:
-      - name: Write the failure to the journal
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          name: audit-agent-${{ github.run_id }}
+          path: agent
+      - name: Write the run to the journal
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -216,9 +222,13 @@ jobs:
         run: |
           journal=$(gh issue list --repo "$REPO" --state open --label audit-log --json number --jq '.[0].number')
           if [ -z "$journal" ]; then
-            echo "::error::No open issue with the audit-log label."
+            echo "::error::No open issue with the audit-log label: the run cannot be logged."
             exit 1
           fi
-          printf '**Аудит (%s) без вывода агента: нужен человек.**\n\n- Сбор отчёта: %s\n- Агент: %s\n- Прогон: %s\n- Отчёт, если собран: артефакт audit-report-%s\n' \
-            "$MODE" "$COLLECT" "$AGENT" "$RUN_URL" "$GITHUB_RUN_ID" > comment.md
+          if [ "$AGENT" = success ] && [ -s agent/agent-output.md ]; then
+            cp agent/agent-output.md comment.md
+          else
+            printf '**Аудит (%s) без вывода агента: нужен человек.**\n\n- Сбор отчёта: %s\n- Агент: %s\n' "$MODE" "$COLLECT" "$AGENT" > comment.md
+          fi
+          printf '\n\n- Прогон: %s\n- Отчёт: артефакт audit-report-%s, вывод агента: audit-agent-%s\n' "$RUN_URL" "$GITHUB_RUN_ID" "$GITHUB_RUN_ID" >> comment.md
           gh issue comment "$journal" --repo "$REPO" --body-file comment.md

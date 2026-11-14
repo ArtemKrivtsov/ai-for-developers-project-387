@@ -1,0 +1,62 @@
+name: opencode-triage
+
+# Preliminary triage of every new issue, without waiting for an /oc command.
+on:
+  issues:
+    types: [opened]
+
+# The job asks for its own permissions; everything else gets none.
+permissions: {}
+
+jobs:
+  triage:
+    # Only issues opened by a trusted participant, never by a bot. Tickets prepared by
+    # the skills already carry a ready-for-* or wayfinder:* label and need no triage.
+    if: >-
+      github.event.issue.user.type != 'Bot' &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association) &&
+      !contains(github.event.issue.labels.*.name, 'ready-for-agent') &&
+      !contains(github.event.issue.labels.*.name, 'ready-for-human') &&
+      !contains(join(github.event.issue.labels.*.name, ','), 'wayfinder:')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: opencode-triage-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    # Same auth as opencode.yml: the agent comments and labels with the OpenCode GitHub App token.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install agent skills
+        run: >-
+          npx --yes skills@1.8.1 add
+          mattpocock/skills@5863806dd4e15c63174bee4e7515a4256792ecfa
+          --skill '*' --global --agent opencode --yes
+
+      - uses: anomalyco/opencode/github@77fc88c8ade8e5a620ebbe1197f3a572d29ae91a # latest
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          # The same non-interactive permissions as in opencode.yml, see the comment there.
+          OPENCODE_CONFIG_CONTENT: >-
+            {"small_model": "opencode/deepseek-v4.1-flash-free",
+            "permission": {"external_directory": {"*": "deny", "~/.agents/skills/**": "allow", "/tmp/**": "allow"},
+            "doom_loop": "deny",
+            "read": {"*": "allow", "*.env": "deny", "*.env.*": "deny", "*.env.example": "allow"}}}
+        with:
+          model: opencode/deepseek-v4.1-flash-free
+          share: false
+          prompt: |
+            Разбери это новое обращение по скиллу triage. Пиши по-русски.
+            - Прочитай AGENTS.md и docs/agents/: трекер, метки и словарь домена.
+            - Проверь, что приложение уже умеет по теме обращения, со ссылками на файлы.
+            - Если данных не хватает, задай вопросы автору списком и поставь метку needs-info.
+            - Если обращение понятно, поставь метку needs-triage и предложи следующий шаг для человека.
+            - Если это дубль или вне рамок проекта, объясни почему, но issue не закрывай: решение за человеком.
+            Код не меняй, ветки и PR не создавай, метки ready-for-agent и ready-for-human не ставь.
+            Ответ оставь одним комментарием в этом issue.

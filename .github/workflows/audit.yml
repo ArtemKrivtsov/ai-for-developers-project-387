@@ -86,17 +86,22 @@ jobs:
           printf '# Отчёт аудита\n\nНет данных: приложение %s не ответило за 2 минуты. Это не значит, что прежние находки исправлены.\n' "$APP_URL" > "$OUT/summary.md"
 
       - name: Summary of the run
+        if: always()
         run: cat "$OUT/summary.md" >> "$GITHUB_STEP_SUMMARY"
 
       # Reports live outside the working tree and only as an artifact, never in a commit.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
         with:
           name: audit-report-${{ github.run_id }}
+          if-no-files-found: ignore
           path: /tmp/audit/
           retention-days: 90
 
   agent:
     needs: collect
+    # The journal records every run, a failed collection too.
+    if: always() && needs.collect.result != 'skipped'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # The agent reads the repository and issues and creates or comments issues with the runner
@@ -114,9 +119,21 @@ jobs:
 
       # .audit/ is git-ignored: the report never ends up in a commit.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
         with:
           name: audit-report-${{ github.run_id }}
           path: .audit
+
+      # A failed collection is "no data", reported as such, never "no findings".
+      - name: Mark a failed collection
+        env:
+          COLLECT: ${{ needs.collect.result }}
+        run: |
+          mkdir -p .audit
+          if [ "$COLLECT" != success ] || [ ! -s .audit/summary.json ]; then
+            printf '{"unavailable": true, "collectFailed": true, "findings": []}\n' > .audit/summary.json
+            printf '# Отчёт аудита\n\nНет данных: сбор отчёта завершился с результатом %s, см. лог прогона. Задачи по находкам не заводятся.\n' "$COLLECT" > .audit/summary.md
+          fi
 
       # One pinned release, checked against its published SHA-256 before it runs.
       - name: Install OpenCode CLI

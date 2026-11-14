@@ -41,7 +41,7 @@ local all = (fast) {
     check = "pnpm -r typecheck"
   }
   ["test"] {
-    glob = List("backend/**", "frontend/**", "spec/**", "pnpm-lock.yaml")
+    glob = List("backend/**", "frontend/**", "spec/**", "audit/**", "pnpm-lock.yaml")
     check = "pnpm -r test"
   }
   ["build"] {

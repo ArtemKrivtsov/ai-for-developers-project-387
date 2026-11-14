@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.3.0](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/compare/v0.2.0...v0.3.0) (2026-11-14)
+
+
+### Features
+
+* let guests add a conversation topic ([#8](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/issues/8), [#9](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/issues/9)) ([034dce8](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/commit/034dce8bdf17f487caff851146fb1d27a5a3a522))
+* let guests add a conversation topic ([#8](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/issues/8), [#9](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/issues/9)) ([034dce8](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/commit/034dce8bdf17f487caff851146fb1d27a5a3a522))
+* let guests add a conversation topic ([#8](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/issues/8)) ([1f1e6aa](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/commit/1f1e6aadfc5cd2ede20e32f4cdc355cfe6b9fa75))
+* show the conversation topic in the owner meeting card ([#9](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/issues/9)) ([e536703](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/commit/e5367038b5f6c6727da701b5bcc70c5c3c2276a9))
+* show the topic length while the guest types ([#8](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/issues/8)) ([7535024](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/commit/753502405544321cf129dc8803d8e52684384f48))
+
+
+### Bug Fixes
+
+* **ci:** fail the budget check when the Actions history is unavailable ([#15](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/issues/15)) ([69b4993](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/commit/69b499360f78d357db76aff595f47fc2430887a5))
+* **ci:** let the reviewer write its report and nothing else ([#15](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/issues/15)) ([b605a5e](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/commit/b605a5e1f21ecce44e57f74f84aabefabb701119))
+* **ci:** quote the agent job name so the run budget finds it ([#15](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/issues/15)) ([d7a41f2](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/commit/d7a41f25e9e1f47223d4fb29ea45d70dd4d6d51a))
+* **ci:** report queued cancels and fork refusals, document all token rights ([#15](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/issues/15)) ([65cf4ee](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/commit/65cf4eeed6934c45077989a59ea4dfa68bd645fa))
+* count the conversation topic length in characters ([#8](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/issues/8)) ([0ee2b9f](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/commit/0ee2b9f1714f66fed8e3c45bb4d59c450cb2dd6d))
+* count the trimmed topic in the length counter ([#8](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/issues/8)) ([2ae90ea](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/commit/2ae90eaf500cb037b82dc5107f1923bd53ca0794))
+
 ## [0.2.0](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/compare/v0.1.0...v0.2.0) (2026-11-14)
 
 

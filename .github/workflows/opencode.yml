@@ -45,7 +45,7 @@ jobs:
       allowed: ${{ steps.budget.outputs.allowed }}
       used: ${{ steps.budget.outputs.used }}
       # "infra" until the agent itself starts, so the report can tell a setup failure apart.
-      stage: ${{ steps.start.outputs.stage || 'infra' }}
+      stage: ${{ steps.fork.outputs.refused && 'fork' || steps.start.outputs.stage || 'infra' }}
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
@@ -56,12 +56,14 @@ jobs:
       # A comment on a fork PR's conversation also arrives as issue_comment:
       # stop before the model key meets the fork's code.
       - name: Refuse pull requests from forks
+        id: fork
         if: github.event_name == 'issue_comment' && github.event.issue.pull_request
         env:
           PR_URL: ${{ github.event.issue.pull_request.url }}
         run: |
           head_repo=$(gh api "$PR_URL" --jq .head.repo.full_name)
           if [ "$head_repo" != "$REPO" ]; then
+            echo "refused=true" >> "$GITHUB_OUTPUT"
             echo "::error::The agent does not run on pull requests from forks ($head_repo)."
             exit 1
           fi
@@ -184,8 +186,10 @@ jobs:
             details="На этот PR агент уже запускался $USED раз, предел 3. Модель не вызывалась."
           elif [ "$AGENT_RESULT" = cancelled ]; then
             # A job that hit timeout-minutes ends as cancelled too: tell them apart by duration.
+            # A job cancelled while still queued has no start or end time.
             minutes=$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" \
-              --jq "[.jobs[] | select(.name == \"agent #$NUMBER\")][0] | ((.completed_at | fromdate) - (.started_at | fromdate)) / 60 | floor")
+              --jq "[.jobs[] | select(.name == \"agent #$NUMBER\")][0]
+                | if .started_at and .completed_at then ((.completed_at | fromdate) - (.started_at | fromdate)) / 60 | floor else 0 end")
             if [ "${minutes:-0}" -ge 45 ]; then
               reason=timeout
               details="Агент не уложился в 45 минут."
@@ -193,6 +197,9 @@ jobs:
               reason=agent_failed
               details="Прогон отменён через $minutes мин. Причину нужно проверить по логам."
             fi
+          elif [ "$STAGE" = fork ]; then
+            reason=fork
+            details="PR из fork: агент не запускается на чужом коде с ключом модели."
           elif [ "$STAGE" = agent ]; then
             reason=agent_failed
             details="Агент завершился с ошибкой."

@@ -149,15 +149,8 @@ jobs:
               exit 0
             fi
           fi
-          # A review cancelled by a newer push is stale, not failed: the new run reports.
-          if [ "$RESULT" = cancelled ]; then
-            current=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)
-            if [ "$current" != "$HEAD_SHA" ]; then
-              echo "The review of $HEAD_SHA was superseded by $current, nothing to post."
-              exit 0
-            fi
-          fi
-          if [ "$RESULT" = success ] && [ -s review/review.md ]; then
+          # A report that exists is posted even if the run failed later.
+          if [ -s review/review.md ]; then
             body=$(cat review/review.md)
           else
             body="**Авторевью не сформировало отчёт** (${RESULT}) для \`${HEAD_SHA}\`. Нужен человек, см. лог."

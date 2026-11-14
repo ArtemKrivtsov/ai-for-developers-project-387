@@ -20,7 +20,7 @@ function validate({ name, email, topic }: Guest): Errors {
   if (!email) errors.email = 'Введите email';
   else if (email.length > 254) errors.email = 'Email длиннее 254 символов';
   else if (!emailShape.test(email)) errors.email = 'Неверный email';
-  if (topic.length > 500) errors.topic = 'Тема длиннее 500 символов';
+  if ([...topic].length > 500) errors.topic = 'Тема длиннее 500 символов';
   return errors;
 }
 

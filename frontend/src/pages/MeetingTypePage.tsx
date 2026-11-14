@@ -2,6 +2,7 @@ import { Anchor, Badge, Button, Grid, ScrollArea, Stack, Text, Title } from '@ma
 import { type ReactNode, useId, useState } from 'react';
 import { Link, useParams } from 'react-router';
 
+import ConversationTopic from '../ConversationTopic.tsx';
 import DayGrid from '../DayGrid.tsx';
 import {
   formatDay,
@@ -79,7 +80,7 @@ function MeetingTypeColumns({
 }: MeetingTypeColumnsProps) {
   const [chosenDate, setChosenDate] = useState<string | null>(null);
   const [chosenStart, setChosenStart] = useState<string | null>(null);
-  const [guest, setGuest] = useState<Guest>({ name: '', email: '' });
+  const [guest, setGuest] = useState<Guest>({ name: '', email: '', topic: '' });
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   /** Why the guest is choosing the time again, until they choose something. */
   const [notice, setNotice] = useState<string | null>(null);
@@ -257,6 +258,7 @@ function Confirmation({ meeting }: { meeting: Meeting }) {
         </Text>
       </div>
       <Text>{`${meeting.guestName}, ${meeting.guestEmail}`}</Text>
+      <ConversationTopic topic={meeting.topic} />
       <Anchor component={Link} to="/book">
         Записаться ещё
       </Anchor>

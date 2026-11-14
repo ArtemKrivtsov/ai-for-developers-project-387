@@ -28,6 +28,75 @@ test('a meeting created on a slot comes back with its whole meeting type and its
     end: '2026-11-10T10:30:00+03:00',
     guestName: 'Иван Петров',
     guestEmail: 'Ivan.Petrov@Example.com',
+    topic: '',
+  });
+});
+
+test('a meeting comes back with the conversation topic and keeps its line breaks', async () => {
+  const app = buildTestApp({ now: monday });
+  const meetingType = await createMeetingType(app);
+  const topic = 'Обсудить резюме.\n\nВопросы:\n1. Опыт\n2. Зарплата';
+
+  const response = await createMeeting(app, meetingType.id, {
+    start: '2026-11-10T09:00:00+03:00',
+    topic,
+  });
+
+  expect(response.statusCode).toBe(201);
+  expect(response.json()).toMatchObject({ topic });
+});
+
+test.each([
+  ['the topic is missing', {}, ''],
+  ['the topic has only spaces', { topic: ' \n\t ' }, ''],
+  [
+    'spaces and line breaks around the topic are trimmed',
+    { topic: '\n  Первая строка\nВторая строка \n' },
+    'Первая строка\nВторая строка',
+  ],
+])('the server normalizes the conversation topic when %s', async (_case, fields, expected) => {
+  const app = buildTestApp({ now: monday });
+  const meetingType = await createMeetingType(app);
+
+  const response = await createMeeting(app, meetingType.id, {
+    start: '2026-11-10T09:00:00+03:00',
+    ...fields,
+  });
+
+  expect(response.statusCode).toBe(201);
+  expect(response.json()).toMatchObject({ topic: expected });
+});
+
+test.each([
+  ['characters', 'я'.repeat(500)],
+  ['emoji', '😀'.repeat(500)],
+])('a topic of exactly 500 %s is accepted', async (_case, topic) => {
+  const app = buildTestApp({ now: monday });
+  const meetingType = await createMeetingType(app);
+
+  const response = await createMeeting(app, meetingType.id, {
+    start: '2026-11-10T09:00:00+03:00',
+    topic,
+  });
+
+  expect(response.statusCode).toBe(201);
+  expect(response.json()).toMatchObject({ topic });
+});
+
+test('a topic of 501 emoji is rejected by its length in characters, not UTF-16 units', async () => {
+  const app = buildTestApp({ now: monday });
+  const meetingType = await createMeetingType(app);
+
+  const response = await createMeeting(app, meetingType.id, {
+    start: '2026-11-10T09:00:00+03:00',
+    topic: '😀'.repeat(501),
+  });
+
+  expect(response.statusCode).toBe(400);
+  expect(response.json()).toEqual({
+    code: 'validation_error',
+    message: expect.any(String),
+    field: 'topic',
   });
 });
 
@@ -87,6 +156,7 @@ test.each([
     { guestEmail: `${'a'.repeat(243)}@example.com` },
     'guestEmail',
   ],
+  ['topic is longer than 500 characters', { topic: 'я'.repeat(501) }, 'topic'],
 ])('creating a meeting fails with a validation error when %s', async (_case, change, field) => {
   const app = buildTestApp({ now: monday });
   const meetingType = await createMeetingType(app);

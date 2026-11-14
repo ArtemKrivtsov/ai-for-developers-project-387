@@ -47,6 +47,13 @@ async function fillGuest(page: Page, name: string, email: string) {
   await form.getByRole('textbox', { name: 'Email' }).fill(email);
 }
 
+async function fillTopic(page: Page, topic: string) {
+  await page
+    .getByRole('region', { name: 'Ваши данные' })
+    .getByRole('textbox', { name: 'О чём хотите поговорить?' })
+    .fill(topic);
+}
+
 async function submit(page: Page) {
   await page
     .getByRole('region', { name: 'Ваши данные' })
@@ -89,6 +96,33 @@ test('a guest takes the first free slot of a new meeting type, and the owner see
   await expect(meeting.getByRole('heading')).toHaveText(`${day}, ${slot}`);
   await expect(meeting).toContainText(meetingType);
   await expect(meeting).toContainText(`${guest}, ${email}`);
+});
+
+test('a guest books with a conversation topic, and the owner sees it in the meeting card', async ({
+  page,
+}) => {
+  const meetingType = unique('Разбор темы');
+  const guest = unique('Гость с темой');
+  const email = `${randomUUID()}@example.com`;
+  const topic = unique('Обсудить резюме');
+
+  await createMeetingType(page, meetingType);
+  await page.goto('/book');
+  await page.getByRole('link', { name: meetingType }).click();
+  const { day, slot } = await chooseFirstSlot(page);
+  await fillGuest(page, guest, email);
+  await fillTopic(page, topic);
+  await submit(page);
+
+  const confirmation = page.getByRole('region', { name: 'Вы записаны' });
+  await expect(confirmation).toContainText(`${guest}, ${email}`);
+  await expect(confirmation).toContainText(topic);
+
+  await page.goto('/owner');
+  const meeting = page.getByRole('article').filter({ hasText: guest });
+  await expect(meeting.getByRole('heading')).toHaveText(`${day}, ${slot}`);
+  await expect(meeting).toContainText(`${guest}, ${email}`);
+  await expect(meeting).toContainText(topic);
 });
 
 test('two guests open one slot, and the second to send the form is told it is taken', async ({

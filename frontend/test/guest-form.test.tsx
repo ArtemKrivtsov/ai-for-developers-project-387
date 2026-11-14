@@ -21,6 +21,7 @@ const timeColumn = () => screen.getByRole('region', { name: 'Время' });
 const form = () => screen.getByRole('region', { name: 'Ваши данные' });
 const nameField = () => within(form()).getByRole('textbox', { name: 'Имя' });
 const emailField = () => within(form()).getByRole('textbox', { name: 'Email' });
+const topicField = () => within(form()).getByRole('textbox', { name: 'О чём хотите поговорить?' });
 
 async function fill(field: HTMLElement, text: string) {
   await userEvent.clear(field);
@@ -44,10 +45,14 @@ test('choosing a slot replaces the slots with the guest form, and «Другое
   expect(within(summary()).getByText('09:30–10:00')).toBeInTheDocument();
   expect(nameField()).toHaveValue('');
   expect(emailField()).toHaveValue('');
+  expect(topicField()).toHaveValue('');
+  expect(topicField()).not.toHaveAttribute('required');
+  expect(topicField()).toHaveAccessibleDescription('Коротко опишите тему, необязательно');
   expect(within(form()).getByRole('button', { name: 'Записаться' })).toBeInTheDocument();
 
   await fill(nameField(), 'Иван Петров');
   await fill(emailField(), 'ivan@example.com');
+  await fill(topicField(), 'Хочу обсудить резюме');
   await userEvent.click(within(form()).getByRole('button', { name: 'Другое время' }));
 
   expect(screen.queryByRole('region', { name: 'Ваши данные' })).not.toBeInTheDocument();
@@ -63,6 +68,7 @@ test('choosing a slot replaces the slots with the guest form, and «Другое
   expect(within(summary()).getByText('09:00–09:30')).toBeInTheDocument();
   expect(nameField()).toHaveValue('Иван Петров');
   expect(emailField()).toHaveValue('ivan@example.com');
+  expect(topicField()).toHaveValue('Хочу обсудить резюме');
 });
 
 test.each([
@@ -95,6 +101,101 @@ test.each([
   expect(field()).toHaveAccessibleDescription(message);
 });
 
+test('the topic counter shows the length of what the guest has typed', async () => {
+  await chooseSlot('09:30–10:00');
+
+  expect(within(form()).getByText('0 / 500')).toBeInTheDocument();
+
+  await fill(topicField(), 'Хочу обсудить резюме');
+
+  expect(within(form()).getByText('20 / 500')).toBeInTheDocument();
+});
+
+test('the topic counter counts an emoji as one character', async () => {
+  await chooseSlot('09:30–10:00');
+
+  await fill(topicField(), '😀😀😀');
+
+  expect(within(form()).getByText('3 / 500')).toBeInTheDocument();
+});
+
+test('the topic counter and the limit count the trimmed topic, so trailing spaces fit', async () => {
+  const topic = 'я'.repeat(500);
+  const sent: NewMeeting[] = [];
+  server.use(
+    handleCreateMeeting(async ({ request }) => {
+      sent.push(await request.json());
+      return HttpResponse.json(
+        {
+          id: 'e4b1c7a2-9d36-4f58-a0e3-5c2b8d1f7a94',
+          meetingType,
+          start: '2026-11-12T09:00:00+03:00',
+          end: '2026-11-12T09:30:00+03:00',
+          guestName: 'Иван Петров',
+          guestEmail: 'ivan@example.com',
+          topic,
+        } satisfies Meeting,
+        { status: 201 },
+      );
+    }),
+  );
+  await chooseSlot('09:00–09:30');
+
+  await fill(nameField(), 'Иван Петров');
+  await fill(emailField(), 'ivan@example.com');
+  await fill(topicField(), `${topic}   `);
+  expect(within(form()).getByText('500 / 500')).toBeInTheDocument();
+
+  await userEvent.click(within(form()).getByRole('button', { name: 'Записаться' }));
+
+  await waitFor(() => expect(sent).toHaveLength(1));
+  expect(sent[0].topic).toBe(topic);
+  expect(await screen.findByRole('region', { name: 'Вы записаны' })).toBeInTheDocument();
+});
+
+test('the form is not sent when the topic is longer than 500 characters', async () => {
+  // No handler for createMeeting: a request would fail the test.
+  await chooseSlot('09:00–09:30');
+
+  await fill(nameField(), 'Иван Петров');
+  await fill(emailField(), 'ivan@example.com');
+  await fill(topicField(), 'я'.repeat(501));
+  await userEvent.click(within(form()).getByRole('button', { name: 'Записаться' }));
+
+  expect(topicField()).toHaveAccessibleDescription(/Тема длиннее 500 символов/);
+});
+
+test('the form accepts a topic of 500 characters outside the basic plane', async () => {
+  const topic = '😀'.repeat(500);
+  const sent: NewMeeting[] = [];
+  server.use(
+    handleCreateMeeting(async ({ request }) => {
+      sent.push(await request.json());
+      return HttpResponse.json(
+        {
+          id: 'e4b1c7a2-9d36-4f58-a0e3-5c2b8d1f7a94',
+          meetingType,
+          start: '2026-11-12T09:00:00+03:00',
+          end: '2026-11-12T09:30:00+03:00',
+          guestName: 'Иван Петров',
+          guestEmail: 'ivan@example.com',
+          topic,
+        } satisfies Meeting,
+        { status: 201 },
+      );
+    }),
+  );
+  await chooseSlot('09:00–09:30');
+
+  await fill(nameField(), 'Иван Петров');
+  await fill(emailField(), 'ivan@example.com');
+  await fill(topicField(), topic);
+  await userEvent.click(within(form()).getByRole('button', { name: 'Записаться' }));
+
+  await waitFor(() => expect(sent).toHaveLength(1));
+  expect(sent[0].topic).toBe(topic);
+});
+
 test('a created meeting replaces the days and slots with a confirmation', async () => {
   const sent: (NewMeeting & { meetingTypeId: string })[] = [];
   let respond!: () => void;
@@ -113,6 +214,7 @@ test('a created meeting replaces the days and slots with a confirmation', async 
         end: '2026-11-12T09:30:00+03:00',
         guestName: 'Иван Петров',
         guestEmail: 'Ivan@Example.com',
+        topic: 'Первая строка\nВторая строка',
       };
       return HttpResponse.json(meeting, { status: 201 });
     }),
@@ -121,6 +223,7 @@ test('a created meeting replaces the days and slots with a confirmation', async 
 
   await fill(nameField(), '  Иван Петров ');
   await fill(emailField(), 'Ivan@Example.com');
+  await fill(topicField(), '  Первая строка\nВторая строка  ');
   const submit = within(form()).getByRole('button', { name: 'Записаться' });
   await userEvent.click(submit);
 
@@ -130,6 +233,7 @@ test('a created meeting replaces the days and slots with a confirmation', async 
     start: '2026-11-12T09:00:00+03:00',
     guestName: 'Иван Петров',
     guestEmail: 'Ivan@Example.com',
+    topic: 'Первая строка\nВторая строка',
   });
   expect(submit).toBeDisabled();
 
@@ -141,6 +245,8 @@ test('a created meeting replaces the days and slots with a confirmation', async 
   expect(within(confirmation).getByText('четверг, 12 ноября, 09:00–09:30')).toBeInTheDocument();
   expect(within(confirmation).getByText('время московское (UTC+3)')).toBeInTheDocument();
   expect(within(confirmation).getByText('Иван Петров, Ivan@Example.com')).toBeInTheDocument();
+  const topic = within(confirmation).getByText(/Первая строка\s+Вторая строка/);
+  expect(topic).toHaveStyle({ whiteSpace: 'pre-wrap' });
   expect(within(confirmation).getByRole('link', { name: 'Записаться ещё' })).toHaveAttribute(
     'href',
     '/book',
@@ -151,11 +257,41 @@ test('a created meeting replaces the days and slots with a confirmation', async 
   expect(within(summary()).getByText('09:00–09:30')).toBeInTheDocument();
 });
 
+test('the confirmation has no topic line when the guest wrote none', async () => {
+  server.use(
+    handleCreateMeeting(() =>
+      HttpResponse.json(
+        {
+          id: 'e4b1c7a2-9d36-4f58-a0e3-5c2b8d1f7a94',
+          meetingType,
+          start: '2026-11-12T09:00:00+03:00',
+          end: '2026-11-12T09:30:00+03:00',
+          guestName: 'Иван Петров',
+          guestEmail: 'ivan@example.com',
+          topic: '',
+        } satisfies Meeting,
+        { status: 201 },
+      ),
+    ),
+  );
+  await chooseSlot('09:00–09:30');
+
+  await fill(nameField(), 'Иван Петров');
+  await fill(emailField(), 'ivan@example.com');
+  await userEvent.click(within(form()).getByRole('button', { name: 'Записаться' }));
+
+  const confirmation = await screen.findByRole('region', { name: 'Вы записаны' });
+  expect(confirmation.textContent).toBe(
+    'Вы записаныРазбор резюмечетверг, 12 ноября, 09:00–09:30время московское (UTC+3)Иван Петров, ivan@example.comЗаписаться ещё',
+  );
+});
+
 const rejectedBy = (error: ApiError) => () => HttpResponse.json(error, { status: 400 });
 
 test.each([
   ['guestName', 'Проверьте имя', nameField],
   ['guestEmail', 'Неверный email', emailField],
+  ['topic', /Тема длиннее 500 символов/, topicField],
 ])('a server rejection of %s shows «%s» under its field', async (field, message, getField) => {
   server.use(
     handleCreateMeeting(
@@ -253,6 +389,7 @@ test.each([
     await chooseThursdaySlot('09:30–10:00');
     await fill(nameField(), 'Иван Петров');
     await fill(emailField(), 'ivan@example.com');
+    await fill(topicField(), 'Хочу обсудить резюме');
     // Meanwhile someone else has taken 09:30.
     serve(slotDays({ '2026-11-11': wednesdaySlots, '2026-11-12': thursdaySlots.slice(0, 1) }));
 
@@ -272,6 +409,7 @@ test.each([
 
     expect(nameField()).toHaveValue('Иван Петров');
     expect(emailField()).toHaveValue('ivan@example.com');
+    expect(topicField()).toHaveValue('Хочу обсудить резюме');
 
     await userEvent.click(within(form()).getByRole('button', { name: 'Другое время' }));
 

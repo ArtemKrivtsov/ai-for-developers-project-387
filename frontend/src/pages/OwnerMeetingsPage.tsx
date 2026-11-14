@@ -1,5 +1,6 @@
 import { Badge, Card, Group, Stack, Text, Title } from '@mantine/core';
 
+import ConversationTopic from '../ConversationTopic.tsx';
 import { formatDuration, formatMeetingTime, moscowTimeNote } from '../format.ts';
 import type { Meeting } from '../generated/index.ts';
 import { useUpcomingMeetings } from '../load.ts';
@@ -43,6 +44,7 @@ function MeetingCard({ meeting }: { meeting: Meeting }) {
       <Text c="dimmed" size="sm" mt="xs">
         {`${meeting.guestName}, ${meeting.guestEmail}`}
       </Text>
+      <ConversationTopic topic={meeting.topic} mt="xs" />
     </Card>
   );
 }

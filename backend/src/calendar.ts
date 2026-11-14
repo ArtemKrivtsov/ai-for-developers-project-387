@@ -108,7 +108,7 @@ export function createCalendar({ now }: { now: Clock }): Calendar {
   // the meeting, a concurrent request cannot take the time in between and sees this meeting.
   function createMeeting(
     meetingTypeId: string,
-    { start, guestName, guestEmail }: NewMeeting,
+    { start, guestName, guestEmail, topic }: NewMeeting,
   ): CreateMeetingResult {
     const meetingType = getMeetingType(meetingTypeId);
     if (!meetingType) return { status: 'meetingTypeNotFound' };
@@ -126,6 +126,7 @@ export function createCalendar({ now }: { now: Clock }): Calendar {
       end: slot.end,
       guestName: guestName.trim(),
       guestEmail,
+      topic: topic?.trim() ?? '',
     };
     meetings.push(meeting);
     return { status: 'created', meeting };

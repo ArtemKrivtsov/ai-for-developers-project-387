@@ -213,6 +213,7 @@ components:
         - end
         - guestName
         - guestEmail
+        - topic
       properties:
         id:
           $ref: '#/components/schemas/uuid'
@@ -236,6 +237,10 @@ components:
           type: string
           maxLength: 254
           format: email
+        topic:
+          type: string
+          maxLength: 500
+          description: The guest's conversation topic. An empty string means the guest wrote none.
       description: A guest's meeting with the owner. Times are Moscow time, like `2026-11-10T09:00:00+03:00`.
     MeetingType:
       type: object
@@ -285,9 +290,13 @@ components:
           type: string
           maxLength: 254
           format: email
+        topic:
+          type: string
+          maxLength: 500
+          description: Omitted or empty when the guest wrote no conversation topic. The server trims it.
       description: |-
         What the guest fills in to get a meeting. `start` is compared with the slots as a moment, so
-        any offset works. The server trims `guestName` and keeps `guestEmail` as it is.
+        any offset works. The server trims `guestName` and `topic` and keeps `guestEmail` as it is.
     NewMeetingType:
       type: object
       required:

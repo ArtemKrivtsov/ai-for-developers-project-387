@@ -119,6 +119,40 @@ test('the topic counter counts an emoji as one character', async () => {
   expect(within(form()).getByText('3 / 500')).toBeInTheDocument();
 });
 
+test('the topic counter and the limit count the trimmed topic, so trailing spaces fit', async () => {
+  const topic = 'я'.repeat(500);
+  const sent: NewMeeting[] = [];
+  server.use(
+    handleCreateMeeting(async ({ request }) => {
+      sent.push(await request.json());
+      return HttpResponse.json(
+        {
+          id: 'e4b1c7a2-9d36-4f58-a0e3-5c2b8d1f7a94',
+          meetingType,
+          start: '2026-11-12T09:00:00+03:00',
+          end: '2026-11-12T09:30:00+03:00',
+          guestName: 'Иван Петров',
+          guestEmail: 'ivan@example.com',
+          topic,
+        } satisfies Meeting,
+        { status: 201 },
+      );
+    }),
+  );
+  await chooseSlot('09:00–09:30');
+
+  await fill(nameField(), 'Иван Петров');
+  await fill(emailField(), 'ivan@example.com');
+  await fill(topicField(), `${topic}   `);
+  expect(within(form()).getByText('500 / 500')).toBeInTheDocument();
+
+  await userEvent.click(within(form()).getByRole('button', { name: 'Записаться' }));
+
+  await waitFor(() => expect(sent).toHaveLength(1));
+  expect(sent[0].topic).toBe(topic);
+  expect(await screen.findByRole('region', { name: 'Вы записаны' })).toBeInTheDocument();
+});
+
 test('the form is not sent when the topic is longer than 500 characters', async () => {
   // No handler for createMeeting: a request would fail the test.
   await chooseSlot('09:00–09:30');

@@ -136,7 +136,7 @@ function GuestForm({
             error={errors.topic}
           />
           <Text c="dimmed" size="xs" ta="right">
-            {topicLength(guest.topic)} / {topicLimit}
+            {topicLength(guest.topic.trim())} / {topicLimit}
           </Text>
         </Stack>
         <Button type="submit" fullWidth loading={submitting}>

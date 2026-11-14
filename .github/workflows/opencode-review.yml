@@ -1,0 +1,102 @@
+name: opencode-review
+
+# Independent review of every pull request: a separate OpenCode CLI run reads the spec,
+# the tickets, the diff and CI, and a separate step posts its report. It never edits code.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions: {}
+
+jobs:
+  review:
+    # Same-repository branches only: a fork PR gets neither the review nor the model key.
+    # Trusted authors only, and PRs of the OpenCode agent itself, so its work is reviewed too.
+    if: >-
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association) ||
+        github.event.pull_request.user.login == 'opencode-agent[bot]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # A new push makes the running review stale: cancel it and review the new head.
+    concurrency:
+      group: opencode-review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    # Read code, the source issue and CI results; write only the PR comment. No OIDC exchange:
+    # the review runs as plain CLI with the runner token.
+    permissions:
+      contents: read
+      issues: read
+      actions: read
+      checks: read
+      statuses: read
+      pull-requests: write
+    env:
+      PR: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+    steps:
+      # The author's version, not the temporary merge commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # One pinned release, checked against its published SHA-256 before it runs.
+      - name: Install OpenCode CLI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA256: 588310a336fa3b9df36b3f0225b26f679d453efaad0cf3d66c3651ef3ec1647a
+        run: |
+          gh release download v1.19.5 --repo anomalyco/opencode --pattern opencode-linux-x64.tar.gz --dir /tmp
+          echo "$SHA256  /tmp/opencode-linux-x64.tar.gz" | sha256sum -c -
+          mkdir -p "$HOME/.opencode/bin"
+          tar -xzf /tmp/opencode-linux-x64.tar.gz -C "$HOME/.opencode/bin"
+          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+
+      - name: Review
+        id: review
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          # Read-only agent: no edits except its report, only reading gh and git commands,
+          # nothing outside the checkout and the report directory, no prompts on the runner.
+          OPENCODE_CONFIG_CONTENT: >-
+            {"small_model": "opencode/deepseek-v4.1-flash-free", "share": "disabled",
+            "permission": {"edit": {"*": "deny", "/tmp/review/*": "allow"},
+            "bash": {"*": "deny", "git diff*": "allow", "git log*": "allow", "git show*": "allow",
+            "gh pr view*": "allow", "gh pr diff*": "allow", "gh pr checks*": "allow",
+            "gh issue view*": "allow", "gh run list*": "allow", "gh run view*": "allow", "gh api*": "allow"},
+            "webfetch": "deny",
+            "external_directory": {"*": "deny", "/tmp/review/**": "allow"},
+            "doom_loop": "deny",
+            "read": {"*": "allow", "*.env": "deny", "*.env.*": "deny", "*.env.example": "allow"}}}
+        shell: bash
+        run: |
+          mkdir -p /tmp/review
+          prompt="Ты независимый ревьюер pull request #${PR} в репозитории ${GITHUB_REPOSITORY}. Реализацию делал другой агент, его сессию ты не продолжаешь и код не правишь.
+          Проверяемая версия: head ${HEAD_SHA}, база ${BASE_SHA}.
+          1. Прочитай REVIEW.md целиком: это критерии ревью и правила замечаний.
+          2. Прочитай описание PR (gh pr view ${PR}) и открой по ссылкам исходное обращение, спецификацию, тикеты и комментарий согласования (gh issue view N --comments). Если ссылок нет или они не открываются, это замечание.
+          3. Изучи изменения: git diff ${BASE_SHA}...${HEAD_SHA}. Читай затронутые файлы целиком, где нужно.
+          4. Посмотри результаты CI для этого SHA: gh pr checks ${PR}. Проверки могут ещё идти, тогда так и напиши.
+          5. Сверь изменение со спецификацией и согласованным объёмом по критериям REVIEW.md.
+          Запиши отчёт по-русски в файл /tmp/review/review.md в формате Markdown: заголовок «Авторевью», строка «Проверено: ${HEAD_SHA}», затем список замечаний (файл:строка, условие, последствие) или фраза «Подтверждённых дефектов не найдено», затем раздел «Соответствие спецификации» и раздел «Предложения», если они есть. Больше ничего не меняй."
+          opencode run --model opencode/deepseek-v4.1-flash-free "$prompt" | tee /tmp/review/run.log
+
+      - name: Post the review
+        if: always() && steps.review.outcome != 'skipped'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OUTCOME: ${{ steps.review.outcome }}
+        run: |
+          if [ "$OUTCOME" = success ] && [ -s /tmp/review/review.md ]; then
+            body=$(cat /tmp/review/review.md)
+          else
+            body="**Авторевью не сформировало отчёт** (${OUTCOME}) для ${HEAD_SHA}. Нужен человек, см. лог."
+          fi
+          printf '%s\n\n[Прогон авторевью](%s)\n' "$body" "$RUN_URL" > /tmp/review/comment.md
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file /tmp/review/comment.md

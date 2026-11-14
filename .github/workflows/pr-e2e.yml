@@ -1,0 +1,68 @@
+name: pr-e2e
+
+# Independent browser check of the exact PR head before the merge decision. It runs the
+# app from the author's commit, not from the temporary merge commit, and needs no model key.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Record the checked out SHA
+        run: |
+          actual=$(git rev-parse HEAD)
+          echo "PR head: $HEAD_SHA, checked out: $actual"
+          if [ "$actual" != "$HEAD_SHA" ]; then
+            echo "::error::Checked out $actual instead of the PR head $HEAD_SHA."
+            exit 1
+          fi
+          mkdir -p e2e-evidence
+          echo "$actual" > e2e-evidence/sha.txt
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        with:
+          version: 2026.11.5
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir e2e exec playwright install --with-deps --only-shell chromium
+      # The trace of a passing run is recorded only when asked for explicitly.
+      - name: Browser scenarios
+        id: e2e
+        run: pnpm --dir e2e exec playwright test --trace on --reporter=list,html
+      - name: Write the result next to the SHA
+        if: always()
+        env:
+          OUTCOME: ${{ steps.e2e.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          echo "$OUTCOME" > e2e-evidence/result.txt
+          {
+            echo "### Браузерная проверка PR"
+            echo
+            echo "- SHA: \`$(cat e2e-evidence/sha.txt)\`"
+            echo "- Результат: $OUTCOME"
+            echo "- Артефакт: \`e2e-$HEAD_SHA\` в этом прогоне ($RUN_URL)"
+          } | tee -a "$GITHUB_STEP_SUMMARY" > e2e-evidence/summary.md
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: e2e-${{ github.event.pull_request.head.sha }}
+          path: |
+            e2e-evidence/
+            e2e/test-results/
+            e2e/playwright-report/
+          retention-days: 30

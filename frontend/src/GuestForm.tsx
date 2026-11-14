@@ -12,6 +12,11 @@ type Errors = { name?: string; email?: string; topic?: string };
 // Only a rough check: the server has the last word on the email.
 const emailShape = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const topicLimit = 500;
+
+/** Counts characters the way the contract does, so an emoji is one character rather than two. */
+const topicLength = (topic: string) => [...topic].length;
+
 /** Checks the trimmed values the way the contract does, so most mistakes never reach the server. */
 function validate({ name, email, topic }: Guest): Errors {
   const errors: Errors = {};
@@ -20,7 +25,7 @@ function validate({ name, email, topic }: Guest): Errors {
   if (!email) errors.email = 'Введите email';
   else if (email.length > 254) errors.email = 'Email длиннее 254 символов';
   else if (!emailShape.test(email)) errors.email = 'Неверный email';
-  if ([...topic].length > 500) errors.topic = 'Тема длиннее 500 символов';
+  if (topicLength(topic) > topicLimit) errors.topic = 'Тема длиннее 500 символов';
   return errors;
 }
 
@@ -121,14 +126,19 @@ function GuestForm({
           onChange={(event) => onGuestChange({ ...guest, email: event.currentTarget.value })}
           error={errors.email}
         />
-        <Textarea
-          label="О чём хотите поговорить?"
-          description="Коротко опишите тему, необязательно"
-          minRows={3}
-          value={guest.topic}
-          onChange={(event) => onGuestChange({ ...guest, topic: event.currentTarget.value })}
-          error={errors.topic}
-        />
+        <Stack gap={4}>
+          <Textarea
+            label="О чём хотите поговорить?"
+            description="Коротко опишите тему, необязательно"
+            minRows={3}
+            value={guest.topic}
+            onChange={(event) => onGuestChange({ ...guest, topic: event.currentTarget.value })}
+            error={errors.topic}
+          />
+          <Text c="dimmed" size="xs" ta="right">
+            {topicLength(guest.topic)} / {topicLimit}
+          </Text>
+        </Stack>
         <Button type="submit" fullWidth loading={submitting}>
           Записаться
         </Button>

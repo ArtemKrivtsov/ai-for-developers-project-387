@@ -101,6 +101,24 @@ test.each([
   expect(field()).toHaveAccessibleDescription(message);
 });
 
+test('the topic counter shows the length of what the guest has typed', async () => {
+  await chooseSlot('09:30–10:00');
+
+  expect(within(form()).getByText('0 / 500')).toBeInTheDocument();
+
+  await fill(topicField(), 'Хочу обсудить резюме');
+
+  expect(within(form()).getByText('20 / 500')).toBeInTheDocument();
+});
+
+test('the topic counter counts an emoji as one character', async () => {
+  await chooseSlot('09:30–10:00');
+
+  await fill(topicField(), '😀😀😀');
+
+  expect(within(form()).getByText('3 / 500')).toBeInTheDocument();
+});
+
 test('the form is not sent when the topic is longer than 500 characters', async () => {
   // No handler for createMeeting: a request would fail the test.
   await chooseSlot('09:00–09:30');

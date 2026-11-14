@@ -10,11 +10,13 @@ on:
   pull_request_review_comment:
     types: [created]
 
-# The job asks for its own permissions; everything else gets none.
+# Each job asks for its own permissions; everything else gets none.
 permissions: {}
 
 jobs:
-  opencode:
+  agent:
+    # Quoted: in plain YAML " #" starts a comment and the name would be just "agent".
+    name: 'agent #${{ github.event.issue.number || github.event.pull_request.number }}'
     # Run only for a command from a trusted participant, never for a bot,
     # and never for a line comment on a PR from a fork.
     if: >-
@@ -24,33 +26,84 @@ jobs:
       (github.event_name != 'pull_request_review_comment' ||
         github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # implement-spec runs a whole ticket graph, so it gets more time than a reply.
+    timeout-minutes: 45
     # One run at a time per issue or PR; a new command waits for the previous one.
+    # The budget check below runs inside this group, so two commands cannot both pass it.
     concurrency:
       group: opencode-${{ github.event.issue.number || github.event.pull_request.number }}
       cancel-in-progress: false
-    # Standard OpenCode auth: the agent acts with the OpenCode GitHub App token,
-    # obtained through the OIDC exchange.
+    # Standard OpenCode auth: the agent acts with the OpenCode GitHub App token, obtained
+    # through the OIDC exchange. actions: read counts the budget in the Actions history,
+    # which the App token cannot rewrite; pull-requests: read checks the PR head repository.
     permissions:
       contents: read
       id-token: write
+      actions: read
+      pull-requests: read
+    outputs:
+      allowed: ${{ steps.budget.outputs.allowed }}
+      used: ${{ steps.budget.outputs.used }}
+      # "infra" until the agent itself starts, so the report can tell a setup failure apart.
+      stage: ${{ steps.fork.outputs.refused && 'fork' || steps.start.outputs.stage || 'infra' }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+      IS_PR: ${{ github.event_name == 'pull_request_review_comment' || github.event.issue.pull_request != null }}
+      BUDGET: 3
     steps:
       # A comment on a fork PR's conversation also arrives as issue_comment:
       # stop before the model key meets the fork's code.
       - name: Refuse pull requests from forks
+        id: fork
         if: github.event_name == 'issue_comment' && github.event.issue.pull_request
         env:
-          GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.issue.pull_request.url }}
-          REPO: ${{ github.repository }}
         run: |
           head_repo=$(gh api "$PR_URL" --jq .head.repo.full_name)
           if [ "$head_repo" != "$REPO" ]; then
+            echo "refused=true" >> "$GITHUB_OUTPUT"
             echo "::error::The agent does not run on pull requests from forks ($head_repo)."
             exit 1
           fi
 
+      # Every admitted request to the agent on a PR counts: an earlier "agent #N" job that
+      # started, whatever its end (success, failure, cancel, timeout), including earlier
+      # attempts of re-runs. Plain issues have no budget.
+      - name: Check the run budget of the PR
+        id: budget
+        run: |
+          if [ "$IS_PR" != true ]; then
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+            echo "used=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # An assignment fails the step on an API error; a bare "for x in $(...)" would not,
+          # and an empty history would silently allow the run.
+          runs=$(gh api --paginate "repos/$REPO/actions/workflows/opencode.yml/runs?per_page=100" --jq '.workflow_runs[].id')
+          if [ -z "$runs" ]; then
+            echo "::error::The Actions history of opencode.yml is empty, the budget cannot be checked."
+            exit 1
+          fi
+          used=0
+          for run in $runs; do
+            n=$(gh api --paginate "repos/$REPO/actions/runs/$run/jobs?filter=all&per_page=100" \
+              --jq "[.jobs[] | select(.name == \"agent #$NUMBER\" and .started_at != null and .conclusion != \"skipped\"
+                and (.run_id != $GITHUB_RUN_ID or .run_attempt < $GITHUB_RUN_ATTEMPT))] | length")
+            for c in $n; do used=$((used + c)); done
+          done
+          echo "Agent runs on PR #$NUMBER before this one: $used of $BUDGET"
+          echo "used=$used" >> "$GITHUB_OUTPUT"
+          if [ "$used" -ge "$BUDGET" ]; then
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::The run budget of PR #$NUMBER is exhausted ($used of $BUDGET). The model is not called."
+          else
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.budget.outputs.allowed == 'true'
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -58,12 +111,29 @@ jobs:
       # The runner starts clean: install the skills of the first project globally,
       # the same set as on the developer machine. OpenCode reads ~/.agents/skills.
       - name: Install agent skills
+        if: steps.budget.outputs.allowed == 'true'
         run: >-
           npx --yes skills@1.8.1 add
           mattpocock/skills@5863806dd4e15c63174bee4e7515a4256792ecfa
           --skill '*' --global --agent opencode --yes
 
+      - name: Check the model key
+        if: steps.budget.outputs.allowed == 'true'
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        run: |
+          if [ -z "$OPENCODE_API_KEY" ]; then
+            echo "::error::The OPENCODE_API_KEY secret is missing."
+            exit 1
+          fi
+
+      - name: Mark the agent start
+        id: start
+        if: steps.budget.outputs.allowed == 'true'
+        run: echo "stage=agent" >> "$GITHUB_OUTPUT"
+
       - uses: anomalyco/opencode/github@77fc88c8ade8e5a620ebbe1197f3a572d29ae91a # latest
+        if: steps.budget.outputs.allowed == 'true'
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           # Nobody answers permission prompts on a runner, and an "ask" rule hangs the run
@@ -80,3 +150,73 @@ jobs:
           mentions: /oc,/opencode
           # Sessions stay private: the repository is public, and a session holds the task context.
           share: false
+
+  # Reports why the agent did not answer, without calling the model. Runs after the agent
+  # job has stopped, so the reason is final.
+  report:
+    needs: agent
+    if: >-
+      always() && needs.agent.result != 'skipped' &&
+      (needs.agent.outputs.allowed == 'false' || needs.agent.result == 'failure' || needs.agent.result == 'cancelled')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: opencode-report-${{ github.run_id }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Post the reason
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          ALLOWED: ${{ needs.agent.outputs.allowed }}
+          USED: ${{ needs.agent.outputs.used }}
+          AGENT_RESULT: ${{ needs.agent.result }}
+          STAGE: ${{ needs.agent.outputs.stage }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$ALLOWED" = false ]; then
+            reason=limit_exhausted
+            details="На этот PR агент уже запускался $USED раз, предел 3. Модель не вызывалась."
+          elif [ "$AGENT_RESULT" = cancelled ]; then
+            # A job that hit timeout-minutes ends as cancelled too: tell them apart by duration.
+            # A job cancelled while still queued has no start or end time.
+            minutes=$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" \
+              --jq "[.jobs[] | select(.name == \"agent #$NUMBER\")][0]
+                | if .started_at and .completed_at then ((.completed_at | fromdate) - (.started_at | fromdate)) / 60 | floor else 0 end")
+            if [ "${minutes:-0}" -ge 45 ]; then
+              reason=timeout
+              details="Агент не уложился в 45 минут."
+            else
+              reason=agent_failed
+              details="Прогон отменён через $minutes мин. Причину нужно проверить по логам."
+            fi
+          elif [ "$STAGE" = fork ]; then
+            reason=fork
+            details="PR из fork: агент не запускается на чужом коде с ключом модели."
+          elif [ "$STAGE" = agent ]; then
+            reason=agent_failed
+            details="Агент завершился с ошибкой."
+          else
+            reason=infra
+            details="Сбой подготовки: проверка бюджета, checkout, установка скиллов или ключ модели."
+          fi
+          # A PR reports its head; a plain issue reports the head of the default branch.
+          if ! sha=$(gh api "repos/$REPO/pulls/$NUMBER" --jq .head.sha 2>/dev/null); then
+            sha=$(gh api "repos/$REPO/commits/HEAD" --jq .sha)
+          fi
+          {
+            echo "**Агент не ответил: \`$reason\`. Нужен человек.**"
+            echo
+            echo "$details"
+            echo
+            echo "- Последний SHA: \`$sha\`"
+            echo "- Логи: $RUN_URL"
+          } > report.md
+          gh issue comment "$NUMBER" --repo "$REPO" --body-file report.md

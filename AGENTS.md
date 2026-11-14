@@ -10,7 +10,7 @@
 - `mise run lint`, `mise run test`: линтеры и тесты по отдельности. В `mise run test` входят API- и компонентные тесты, браузерные запускает шаг `e2e`.
 - `pnpm --dir backend exec vitest run test/health.test.ts -t "<имя теста>"`: один тест, во фронтенде так же через `--dir frontend`.
 - `pnpm --dir e2e exec playwright test -g "<имя теста>"`: один браузерный тест. Playwright сам собирает фронтенд и запускает сервер на свободном порту.
-- `hk check --all -S <step>`: один шаг проверок (`oxlint`, `oxfmt`, `jactionlint`, `generated`, `typecheck`, `test`, `build`, `e2e`, `image`).
+- `hk check --all -S <step>`: один шаг проверок (`oxlint`, `oxfmt`, `jactionlint`, `workflow-names`, `generated`, `typecheck`, `test`, `build`, `e2e`, `image`).
 - `mise run check`: все проверки, тот же набор запускает CI и pre-push. Нужен запущенный Docker: шаг `image` собирает образ и проверяет контейнер. Изменение готово, когда команда зелёная.
 - `mise run fix`: автоисправления линтеров и форматтера.
 
@@ -31,6 +31,8 @@ API идёт от контракта: `spec/main.tsp` → `mise run generate` �
 - TypeScript держим на 6.x: hey-api использует JS-API компилятора, которого нет в TypeScript 7.
 - Коммиты пишем по [Conventional Commits](https://www.conventionalcommits.org/): `<type>(<scope>): <description>`, например `docs: add booking scenario to README`. Описание на английском, в повелительном наклонении. Коммит реализации ссылается на тикет, который закрывает: `feat: add meeting type catalog (#18)`.
 - Тикеты спецификации реализуем в одной общей ветке и вливаем её в `main` после общего ревью. Правки вне тикетов коммитим прямо в `main`.
+- Описание PR заполняем по `.github/pull_request_template.md`: ссылки на обращение, спецификацию, тикеты и комментарий согласования, проверки с командами, прогонами и SHA, риск и откат. Задачи, которые PR закрывает, перечисляем строками `Closes #N`. Заголовок PR тоже по Conventional Commits: из него берётся сообщение мерж-коммита.
+- Критерии ревью лежат в `REVIEW.md`. Если находку ревью нельзя поймать тестом или линтером, правило дописываем туда.
 
 ## Agent skills
 
@@ -50,7 +52,7 @@ API идёт от контракта: `spec/main.tsp` → `mise run generate` �
 
 ### Агент в GitHub Actions
 
-Тот же набор скиллов и настроек работает в GitHub: воркфлоу `.github/workflows/opencode.yml` запускает OpenCode по команде `/oc` или `/opencode` в комментарии issue или PR. Ответ приходит комментарием в том же обсуждении, вопросы и решения остаются там же, поэтому следующая сессия читает их перед работой. Описание воркфлоу, модели и ограничений лежит в README.md, раздел «Агент в GitHub». Новый воркфлоу агента добавляем туда же.
+Тот же набор скиллов и настроек работает в GitHub: воркфлоу `.github/workflows/opencode.yml` запускает OpenCode по команде `/oc` или `/opencode` в комментарии issue или PR. Ответ приходит комментарием в том же обсуждении, вопросы и решения остаются там же, поэтому следующая сессия читает их перед работой. Описание воркфлоу, модели и ограничений лежит в README.md, раздел «Агент в GitHub». Новый воркфлоу агента добавляем туда же. Агент в Actions не может менять `.github/workflows/`: у приложения `opencode-agent` нет права `workflows`.
 
 ### Triage labels
 

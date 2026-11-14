@@ -97,6 +97,8 @@ jobs:
           if-no-files-found: ignore
           path: /tmp/audit/
           retention-days: 90
+          # Re-run failed jobs uploads again under the same name.
+          overwrite: true
 
   agent:
     needs: collect
@@ -194,6 +196,8 @@ jobs:
             .audit/agent-run.log
           if-no-files-found: ignore
           retention-days: 90
+          # Re-run failed jobs uploads again under the same name.
+          overwrite: true
 
   # Without a model: writes every run to the journal, the agent's conclusion or the reason
   # there is none, so a run never goes unrecorded.

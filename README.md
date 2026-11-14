@@ -1,29 +1,102 @@
 # Календарь звонков (продолжение)
 
-
 [![hexlet-check](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/actions/workflows/hexlet-check.yml/badge.svg)](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/actions)
 
 Интегрируйте работу агентов в GitHub проект
 
+Приложение «Календарь звонков» перенесено из первого проекта, [ai-for-developers-project-386](https://github.com/ArtemKrivtsov/ai-for-developers-project-386). Здесь вокруг него автоматизируется процесс разработки в GitHub: разбор задач, реализация, ревью и регулярные проверки выполняют агенты в Actions, решения остаются за человеком.
+
+**Приложение:** https://ai-for-developers-project-386-cehm.onrender.com
+
 Учебный проект Хекслета: https://ru.hexlet.io/programs/ai-for-developers
 Как это должно работать: https://files.hexlet.app/a/2ipc5m
 
+## Сценарий
+
+Упрощённый аналог [Cal.com](https://cal.com/). Владелец календаря один и задан заранее, гость записывается без регистрации.
+
+1. Владелец на своей странице создаёт тип встречи: название, описание и длительность, например «Знакомство», 30 минут.
+2. Гость открывает главную страницу, переходит в каталог типов встреч и выбирает нужный.
+3. Открывается календарь на ближайшие 14 дней. Гость выбирает день и видит свободные слоты. Слот длится столько же, сколько выбранный тип встречи, занятое время не предлагается.
+4. Гость выбирает слот, вводит имя и email и записывается.
+5. Сервер проверяет, что время всё ещё свободно, и создаёт встречу. Если слот успели занять, гость получает ошибку и выбирает другое время.
+6. Владелец открывает список предстоящих встреч и видит новую встречу: тип встречи, дату и время, имя и email гостя. В списке встречи всех типов.
+
+### Правила
+
+- Окно записи занимает 14 календарных дней и сдвигается каждый день.
+- Встречи не пересекаются даже частично, в том числе встречи разных типов. Следующая встреча может начаться в момент окончания предыдущей.
+- Правило действует и для одновременных запросов на одно время: встреча появится только одна.
+- Первый день окна, часы работы владельца, часовой пояс и шаг стартов слотов фиксируются в спецификации.
+
+### Ограничения
+
+- Нет авторизации, личных кабинетов, внешних календарей и уведомлений.
+- API описан контрактом на TypeSpec. Из него генерируются OpenAPI-спецификация и клиентский SDK для фронтенда.
+- Приложение собирается в Docker-образ и запускается в контейнере.
+
 ## Стек
 
-- Разное
+- Контракт API: TypeSpec → OpenAPI 3.0.
+- Бэкенд: Node.js 26, Fastify, fastify-openapi-glue, типы маршрутов генерирует hey-api.
+- Фронтенд: React, Vite, Mantine, React Router, SDK генерирует hey-api.
+- Тесты: Vitest, во фронтенде Testing Library и jsdom, сквозной сценарий на Playwright в Chromium. Линтеры: oxlint, oxfmt, jactionlint, tsc.
+- Окружение: mise (инструменты, задачи, фоновые процессы), hk (git-хуки), pnpm workspaces.
 
 ## Установка
 
-<!-- Опишите установку: клонирование, зависимости, переменные окружения -->
+Нужен [mise](https://mise.jdx.dev/getting-started.html), остальные инструменты он поставит сам. Для `mise run check` нужен ещё запущенный [Docker](https://docs.docker.com/get-started/get-docker/): проверки собирают образ приложения и запускают контейнер.
 
 ```bash
 git clone https://github.com/ArtemKrivtsov/ai-for-developers-project-387.git
 cd ai-for-developers-project-387
+mise trust && mise install
+mise run setup
+```
+
+`mise run setup` ставит и Chromium для браузерных тестов. На Linux браузеру нужны ещё системные библиотеки: `pnpm --dir e2e exec playwright install-deps chromium`, команда просит sudo.
+
+Для работы с агентом нужен набор скиллов [mattpocock/skills](https://github.com/mattpocock/skills), он ставится глобально. Настройка под репозиторий уже лежит в `docs/agents/`.
+
+```bash
+npx skills@latest add mattpocock/skills -g
 ```
 
 ## Использование
 
-<!-- Добавьте примеры запуска и запись asciinema — именно это смотрит работодатель -->
+```bash
+mise daemons start   # бэкенд на :3000, фронтенд на http://localhost:5173
+mise daemons stop
+mise run check       # все проверки, те же, что в CI
+```
+
+## Деплой
+
+Приложение опубликовано на Render: https://ai-for-developers-project-386-cehm.onrender.com
+
+Render собирает образ по `Dockerfile` из ветки `main` репозитория первого проекта, [ai-for-developers-project-386](https://github.com/ArtemKrivtsov/ai-for-developers-project-386), и передаёт порт в переменной `PORT`. Если адрес недоступен, приложение запускается локально командой `mise daemons start` из раздела «Использование» или в Docker:
+
+```bash
+docker build -t calendar .
+docker run --rm -p 8080:8080 calendar   # http://localhost:8080
+```
+
+Типы встреч и встречи хранятся в памяти сервера и пропадают при каждом перезапуске: после деплоя, рестарта и засыпания сервиса. Бесплатный сервис Render засыпает после 15 минут без запросов. Первый запрос после этого ждёт запуска около минуты, и в календаре остаются только два стартовых типа встреч.
+
+### MCP-сервер Render
+
+Выкатом управляет агент через [MCP-сервер Render](https://render.com/docs/mcp-server). Для Claude Code сервер описан в `.mcp.json`, API-ключ берётся из переменной окружения `RENDER_API_KEY`.
+
+1. Создайте API-ключ в Render: [Account Settings → API Keys](https://dashboard.render.com/u/settings?add-api-key).
+2. Сохраните его в `.env.local` строкой `RENDER_API_KEY=<ключ>`. Файл в `.gitignore`, в репозиторий ключ не попадёт.
+3. Запустите агента с этой переменной:
+
+   ```bash
+   set -a; . ./.env.local; set +a
+   claude
+   ```
+
+4. При первом запуске подтвердите сервер `render` из `.mcp.json`. В `claude mcp list` у него должно стоять `Connected`.
 
 ---
 

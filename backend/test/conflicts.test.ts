@@ -2,6 +2,26 @@ import { expect, test } from 'vitest';
 
 import { buildTestApp, createMeeting, createMeetingType, monday, request } from './api.ts';
 
+test('a request with a conversation topic for a taken slot gets a conflict and creates no meeting', async () => {
+  const app = buildTestApp({ now: monday });
+  const meetingType = await createMeetingType(app);
+  const first = await createMeeting(app, meetingType.id, { start: '2026-11-10T10:00:00+03:00' });
+  expect(first.statusCode).toBe(201);
+
+  const response = await createMeeting(app, meetingType.id, {
+    start: '2026-11-10T10:00:00+03:00',
+    guestName: 'Мария Иванова',
+    guestEmail: 'maria@example.com',
+    topic: 'Обсудить новый проект',
+  });
+
+  expect(response.statusCode).toBe(409);
+  expect(response.json()).toEqual({ code: 'conflict', message: expect.any(String) });
+  const meetings = await request(app, { method: 'GET', url: '/api/meetings' });
+  expect(meetings.json()).toHaveLength(1);
+  expect(meetings.json()[0]).toMatchObject({ guestName: 'Иван Петров', topic: '' });
+});
+
 test('partial overlap: a 30-minute meeting at 10:30 inside a 60-minute meeting of another type at 10:00 is a conflict', async () => {
   const app = buildTestApp({ now: monday });
   const hour = await createMeetingType(app, { durationMinutes: 60 });

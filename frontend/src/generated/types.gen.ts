@@ -40,6 +40,10 @@ export type Meeting = {
     end: string;
     guestName: string;
     guestEmail: string;
+    /**
+     * The guest's conversation topic. An empty string means the guest wrote none.
+     */
+    topic: string;
 };
 
 /**
@@ -57,12 +61,16 @@ export type MeetingType = {
 
 /**
  * What the guest fills in to get a meeting. `start` is compared with the slots as a moment, so
- * any offset works. The server trims `guestName` and keeps `guestEmail` as it is.
+ * any offset works. The server trims `guestName` and `topic` and keeps `guestEmail` as it is.
  */
 export type NewMeeting = {
     start: string;
     guestName: string;
     guestEmail: string;
+    /**
+     * Omitted or empty when the guest wrote no conversation topic. The server trims it.
+     */
+    topic?: string;
 };
 
 /**

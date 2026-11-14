@@ -38,6 +38,28 @@ test('upcoming meetings of every meeting type come nearest first', async () => {
   ]);
 });
 
+test('upcoming meetings carry the conversation topic and an empty string when there is none', async () => {
+  const app = buildTestApp({ now: monday });
+  const meetingType = await createMeetingType(app);
+  await createMeeting(app, meetingType.id, {
+    start: '2026-11-10T09:00:00+03:00',
+    topic: 'Обсудить резюме\nи вопросы',
+  });
+  await createMeeting(app, meetingType.id, {
+    start: '2026-11-10T10:00:00+03:00',
+    guestName: 'Мария Иванова',
+  });
+
+  const response = await listUpcomingMeetings(app);
+
+  expect(response.statusCode).toBe(200);
+  const meetings: { guestName: string; topic: string }[] = response.json();
+  expect(meetings.map(({ guestName, topic }) => [guestName, topic])).toEqual([
+    ['Иван Петров', 'Обсудить резюме\nи вопросы'],
+    ['Мария Иванова', ''],
+  ]);
+});
+
 test('a meeting going on now stays in the list until it ends', async () => {
   let at = monday();
   const app = buildTestApp({ now: () => at });

@@ -1,25 +1,26 @@
-import { Button, Stack, Text, TextInput } from '@mantine/core';
+import { Button, Stack, Text, Textarea, TextInput } from '@mantine/core';
 import { type FormEvent, useState } from 'react';
 
 import { createMeeting, type Meeting } from './generated/index.ts';
 import { type Field, rejectedField } from './rejectedField.ts';
 
 /** What the guest typed. It outlives the form, so going back to the slots keeps it. */
-export type Guest = { name: string; email: string };
+export type Guest = { name: string; email: string; topic: string };
 
-type Errors = { name?: string; email?: string };
+type Errors = { name?: string; email?: string; topic?: string };
 
 // Only a rough check: the server has the last word on the email.
 const emailShape = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** Checks the trimmed values the way the contract does, so most mistakes never reach the server. */
-function validate({ name, email }: Guest): Errors {
+function validate({ name, email, topic }: Guest): Errors {
   const errors: Errors = {};
   if (!name) errors.name = 'Введите имя';
   else if (name.length > 100) errors.name = 'Имя длиннее 100 символов';
   if (!email) errors.email = 'Введите email';
   else if (email.length > 254) errors.email = 'Email длиннее 254 символов';
   else if (!emailShape.test(email)) errors.email = 'Неверный email';
+  if (topic.length > 500) errors.topic = 'Тема длиннее 500 символов';
   return errors;
 }
 
@@ -27,6 +28,7 @@ function validate({ name, email }: Guest): Errors {
 const serverErrors: Partial<Record<Field, Errors>> = {
   guestName: { name: 'Проверьте имя' },
   guestEmail: { email: 'Неверный email' },
+  topic: { topic: 'Тема длиннее 500 символов' },
 };
 
 type Props = {
@@ -62,11 +64,11 @@ function GuestForm({
   const [failed, setFailed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  async function submit({ name, email }: Guest) {
+  async function submit({ name, email, topic }: Guest) {
     setSubmitting(true);
     const { data, error, response } = await createMeeting({
       path: { meetingTypeId },
-      body: { start, guestName: name, guestEmail: email },
+      body: { start, guestName: name, guestEmail: email, topic },
     });
     setSubmitting(false);
     if (data) return onCreated(data);
@@ -82,7 +84,11 @@ function GuestForm({
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const values = { name: guest.name.trim(), email: guest.email.trim() };
+    const values = {
+      name: guest.name.trim(),
+      email: guest.email.trim(),
+      topic: guest.topic.trim(),
+    };
     const fieldErrors = validate(values);
     setErrors(fieldErrors);
     setFailed(false);
@@ -114,6 +120,14 @@ function GuestForm({
           value={guest.email}
           onChange={(event) => onGuestChange({ ...guest, email: event.currentTarget.value })}
           error={errors.email}
+        />
+        <Textarea
+          label="О чём хотите поговорить?"
+          description="Коротко опишите тему, необязательно"
+          minRows={3}
+          value={guest.topic}
+          onChange={(event) => onGuestChange({ ...guest, topic: event.currentTarget.value })}
+          error={errors.topic}
         />
         <Button type="submit" fullWidth loading={submitting}>
           Записаться

@@ -76,15 +76,23 @@ model Meeting {
   @maxLength(254)
   @format("email")
   guestEmail: string;
+
+  /** The guest's conversation topic. An empty string means the guest wrote none. */
+  @maxLength(500)
+  topic: string;
 }
 
 /**
  * What the guest fills in to get a meeting. `start` is compared with the slots as a moment, so
- * any offset works. The server trims `guestName` and keeps `guestEmail` as it is.
+ * any offset works. The server trims `guestName` and `topic` and keeps `guestEmail` as it is.
  */
 model NewMeeting {
   start: offsetDateTime;
   ...PickProperties<Meeting, "guestName" | "guestEmail">;
+
+  /** Omitted or empty when the guest wrote no conversation topic. The server trims it. */
+  @maxLength(500)
+  topic?: string;
 }
 
 /** Why the server refused the request. */

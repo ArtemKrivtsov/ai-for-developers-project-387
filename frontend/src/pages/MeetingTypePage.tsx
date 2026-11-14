@@ -79,7 +79,7 @@ function MeetingTypeColumns({
 }: MeetingTypeColumnsProps) {
   const [chosenDate, setChosenDate] = useState<string | null>(null);
   const [chosenStart, setChosenStart] = useState<string | null>(null);
-  const [guest, setGuest] = useState<Guest>({ name: '', email: '' });
+  const [guest, setGuest] = useState<Guest>({ name: '', email: '', topic: '' });
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   /** Why the guest is choosing the time again, until they choose something. */
   const [notice, setNotice] = useState<string | null>(null);
@@ -257,6 +257,7 @@ function Confirmation({ meeting }: { meeting: Meeting }) {
         </Text>
       </div>
       <Text>{`${meeting.guestName}, ${meeting.guestEmail}`}</Text>
+      {meeting.topic && <Text style={{ whiteSpace: 'pre-wrap' }}>{meeting.topic}</Text>}
       <Anchor component={Link} to="/book">
         Записаться ещё
       </Anchor>

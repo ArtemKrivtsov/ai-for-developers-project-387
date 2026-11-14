@@ -19,6 +19,7 @@ const introduction: Meeting = {
   end: '2026-11-10T09:30:00+03:00',
   guestName: 'Иван Петров',
   guestEmail: 'ivan@example.com',
+  topic: '',
 };
 
 const consultation: Meeting = {
@@ -33,6 +34,7 @@ const consultation: Meeting = {
   end: '2026-11-12T17:30:00+03:00',
   guestName: 'Мария Иванова',
   guestEmail: 'Maria@Example.com',
+  topic: '',
 };
 
 test('the owner panel links to the meetings and highlights them on /owner', async () => {

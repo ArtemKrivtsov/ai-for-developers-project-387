@@ -2,6 +2,7 @@ import { Anchor, Badge, Button, Grid, ScrollArea, Stack, Text, Title } from '@ma
 import { type ReactNode, useId, useState } from 'react';
 import { Link, useParams } from 'react-router';
 
+import ConversationTopic from '../ConversationTopic.tsx';
 import DayGrid from '../DayGrid.tsx';
 import {
   formatDay,
@@ -257,7 +258,7 @@ function Confirmation({ meeting }: { meeting: Meeting }) {
         </Text>
       </div>
       <Text>{`${meeting.guestName}, ${meeting.guestEmail}`}</Text>
-      {meeting.topic && <Text style={{ whiteSpace: 'pre-wrap' }}>{meeting.topic}</Text>}
+      <ConversationTopic topic={meeting.topic} />
       <Anchor component={Link} to="/book">
         Записаться ещё
       </Anchor>

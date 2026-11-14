@@ -15,5 +15,8 @@ export default defineConfig({
     setupFiles: './test/setup.ts',
     // A browser far from Moscow: times on the pages must stay Moscow time anyway.
     env: { TZ: 'America/Los_Angeles' },
+    // The longest form tests take about 4 s alone and went past the default 5 s on a loaded CI
+    // runner, while other packages ran their tests in parallel.
+    testTimeout: 15_000,
   },
 });

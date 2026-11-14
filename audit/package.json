@@ -1,0 +1,11 @@
+{
+  "name": "audit",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "lighthouse": "^13.6.0"
+  }
+}

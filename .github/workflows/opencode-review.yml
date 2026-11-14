@@ -49,11 +49,11 @@ jobs:
       # Only a PR that adds the file reviews itself by its own version.
       - name: Take the review criteria from the base
         run: |
-          mkdir -p /tmp/review
-          if git show "$BASE_SHA:REVIEW.md" > /tmp/review/criteria.md 2>/dev/null; then
+          mkdir -p .review
+          if git show "$BASE_SHA:REVIEW.md" > .review/criteria.md 2>/dev/null; then
             echo "Criteria: REVIEW.md at the base $BASE_SHA"
           else
-            cp REVIEW.md /tmp/review/criteria.md
+            cp REVIEW.md .review/criteria.md
             echo "Criteria: REVIEW.md at the head, the base has none"
           fi
 
@@ -73,34 +73,36 @@ jobs:
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           GH_TOKEN: ${{ github.token }}
-          # The agent edits nothing but its report, runs only reading git and gh commands,
-          # reaches nothing outside the checkout and /tmp/review, and is never prompted.
+          # The agent edits nothing but its report in .review/, runs only reading git and gh
+          # commands (no --output or redirection, which would write files), reaches nothing
+          # outside the checkout, and is never prompted.
           OPENCODE_CONFIG_CONTENT: >-
             {"small_model": "opencode/deepseek-v4.1-flash-free", "share": "disabled",
-            "permission": {"edit": {"*": "deny", "/tmp/review/*": "allow", "/tmp/review/**": "allow"},
+            "permission": {"edit": {"*": "deny", ".review/review.md": "allow", "*/.review/review.md": "allow"},
             "bash": {"*": "deny", "git diff*": "allow", "git log*": "allow", "git show*": "allow",
             "gh pr view*": "allow", "gh pr diff*": "allow", "gh pr checks*": "allow",
-            "gh issue view*": "allow", "gh run list*": "allow", "gh run view*": "allow"},
+            "gh issue view*": "allow", "gh run list*": "allow", "gh run view*": "allow",
+            "*--output*": "deny", "*>*": "deny"},
             "webfetch": "deny",
-            "external_directory": {"*": "deny", "/tmp/review/**": "allow"},
+            "external_directory": "deny",
             "doom_loop": "deny",
             "read": {"*": "allow", "*.env": "deny", "*.env.*": "deny", "*.env.example": "allow"}}}
         shell: bash
         run: |
           prompt="Ты независимый ревьюер pull request #${PR} в репозитории ${GITHUB_REPOSITORY}. Реализацию делал другой агент, его сессию ты не продолжаешь и код не правишь.
           Проверяемая версия: head ${HEAD_SHA}, база ${BASE_SHA}.
-          1. Прочитай критерии ревью в /tmp/review/criteria.md целиком: это REVIEW.md из базовой ветки, по нему и проверяй.
+          1. Прочитай критерии ревью в .review/criteria.md целиком: это REVIEW.md из базовой ветки, по нему и проверяй.
           2. Прочитай описание PR и обсуждение (gh pr view ${PR} --comments) и открой по ссылкам исходное обращение, спецификацию, тикеты и комментарий согласования (gh issue view N --comments). Если ссылок нет или они не открываются, это замечание. Учитывай замечания, которые уже разобраны в обсуждении, и не повторяй отклонённые без нового довода.
           3. Изучи изменения: git diff ${BASE_SHA}...${HEAD_SHA}. Читай затронутые файлы целиком, где нужно.
           4. Посмотри результаты CI для этого SHA: gh pr checks ${PR}. Проверки могут ещё идти, тогда так и напиши.
           5. Сверь изменение со спецификацией и согласованным объёмом по критериям.
-          Запиши отчёт по-русски в файл /tmp/review/review.md в формате Markdown: заголовок «Авторевью», строка «Проверено: ${HEAD_SHA}», затем список замечаний (файл:строка, условие, последствие) или фраза «Подтверждённых дефектов не найдено», затем раздел «Соответствие спецификации» и раздел «Предложения», если они есть. Больше ничего не меняй."
-          opencode run --model opencode/deepseek-v4.1-flash-free "$prompt" | tee /tmp/review/run.log
+          Запиши отчёт по-русски в файл .review/review.md инструментом записи файлов в формате Markdown: заголовок «Авторевью», строка «Проверено: ${HEAD_SHA}», затем список замечаний (файл:строка, условие, последствие) или фраза «Подтверждённых дефектов не найдено», затем раздел «Соответствие спецификации» и раздел «Предложения», если они есть. Больше ничего не меняй."
+          opencode run --model opencode/deepseek-v4.1-flash-free "$prompt" | tee .review/run.log
 
       # A green review without a report would look like a passed review.
       - name: Require the report
         run: |
-          if [ ! -s /tmp/review/review.md ]; then
+          if [ ! -s .review/review.md ]; then
             echo "::error::The reviewer wrote no report."
             exit 1
           fi
@@ -109,7 +111,7 @@ jobs:
         if: always()
         with:
           name: review-${{ github.event.pull_request.head.sha }}
-          path: /tmp/review/review.md
+          path: .review/review.md
           if-no-files-found: ignore
           retention-days: 30
 

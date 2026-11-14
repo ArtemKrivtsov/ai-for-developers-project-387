@@ -1,7 +1,8 @@
 name: opencode-review
 
 # Independent review of every pull request: a separate OpenCode CLI run reads the spec,
-# the tickets, the diff and CI, and a separate step posts its report. It never edits code.
+# the tickets, the diff and CI and writes a report. It never edits code. Another job,
+# without the model key, posts the report.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -23,15 +24,15 @@ jobs:
     concurrency:
       group: opencode-review-${{ github.event.pull_request.number }}
       cancel-in-progress: true
-    # Read code, the source issue and CI results; write only the PR comment. No OIDC exchange:
-    # the review runs as plain CLI with the runner token.
+    # Read-only token next to the model key: code, the source issue and CI results.
+    # The reviewer cannot write to the PR even if it tries.
     permissions:
       contents: read
       issues: read
+      pull-requests: read
       actions: read
       checks: read
       statuses: read
-      pull-requests: write
     env:
       PR: ${{ github.event.pull_request.number }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -43,6 +44,18 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      # A PR must not weaken the criteria of its own review: take REVIEW.md from the base.
+      # Only a PR that adds the file reviews itself by its own version.
+      - name: Take the review criteria from the base
+        run: |
+          mkdir -p /tmp/review
+          if git show "$BASE_SHA:REVIEW.md" > /tmp/review/criteria.md 2>/dev/null; then
+            echo "Criteria: REVIEW.md at the base $BASE_SHA"
+          else
+            cp REVIEW.md /tmp/review/criteria.md
+            echo "Criteria: REVIEW.md at the head, the base has none"
+          fi
 
       # One pinned release, checked against its published SHA-256 before it runs.
       - name: Install OpenCode CLI
@@ -57,46 +70,79 @@ jobs:
           echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
 
       - name: Review
-        id: review
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           GH_TOKEN: ${{ github.token }}
-          # Read-only agent: no edits except its report, only reading gh and git commands,
-          # nothing outside the checkout and the report directory, no prompts on the runner.
+          # The agent edits nothing but its report, runs only reading git and gh commands,
+          # reaches nothing outside the checkout and /tmp/review, and is never prompted.
           OPENCODE_CONFIG_CONTENT: >-
             {"small_model": "opencode/deepseek-v4.1-flash-free", "share": "disabled",
-            "permission": {"edit": {"*": "deny", "/tmp/review/*": "allow"},
+            "permission": {"edit": {"*": "deny", "/tmp/review/*": "allow", "/tmp/review/**": "allow"},
             "bash": {"*": "deny", "git diff*": "allow", "git log*": "allow", "git show*": "allow",
             "gh pr view*": "allow", "gh pr diff*": "allow", "gh pr checks*": "allow",
-            "gh issue view*": "allow", "gh run list*": "allow", "gh run view*": "allow", "gh api*": "allow"},
+            "gh issue view*": "allow", "gh run list*": "allow", "gh run view*": "allow"},
             "webfetch": "deny",
             "external_directory": {"*": "deny", "/tmp/review/**": "allow"},
             "doom_loop": "deny",
             "read": {"*": "allow", "*.env": "deny", "*.env.*": "deny", "*.env.example": "allow"}}}
         shell: bash
         run: |
-          mkdir -p /tmp/review
           prompt="Ты независимый ревьюер pull request #${PR} в репозитории ${GITHUB_REPOSITORY}. Реализацию делал другой агент, его сессию ты не продолжаешь и код не правишь.
           Проверяемая версия: head ${HEAD_SHA}, база ${BASE_SHA}.
-          1. Прочитай REVIEW.md целиком: это критерии ревью и правила замечаний.
-          2. Прочитай описание PR (gh pr view ${PR}) и открой по ссылкам исходное обращение, спецификацию, тикеты и комментарий согласования (gh issue view N --comments). Если ссылок нет или они не открываются, это замечание.
+          1. Прочитай критерии ревью в /tmp/review/criteria.md целиком: это REVIEW.md из базовой ветки, по нему и проверяй.
+          2. Прочитай описание PR и обсуждение (gh pr view ${PR} --comments) и открой по ссылкам исходное обращение, спецификацию, тикеты и комментарий согласования (gh issue view N --comments). Если ссылок нет или они не открываются, это замечание. Учитывай замечания, которые уже разобраны в обсуждении, и не повторяй отклонённые без нового довода.
           3. Изучи изменения: git diff ${BASE_SHA}...${HEAD_SHA}. Читай затронутые файлы целиком, где нужно.
           4. Посмотри результаты CI для этого SHA: gh pr checks ${PR}. Проверки могут ещё идти, тогда так и напиши.
-          5. Сверь изменение со спецификацией и согласованным объёмом по критериям REVIEW.md.
+          5. Сверь изменение со спецификацией и согласованным объёмом по критериям.
           Запиши отчёт по-русски в файл /tmp/review/review.md в формате Markdown: заголовок «Авторевью», строка «Проверено: ${HEAD_SHA}», затем список замечаний (файл:строка, условие, последствие) или фраза «Подтверждённых дефектов не найдено», затем раздел «Соответствие спецификации» и раздел «Предложения», если они есть. Больше ничего не меняй."
           opencode run --model opencode/deepseek-v4.1-flash-free "$prompt" | tee /tmp/review/run.log
 
+      # A green review without a report would look like a passed review.
+      - name: Require the report
+        run: |
+          if [ ! -s /tmp/review/review.md ]; then
+            echo "::error::The reviewer wrote no report."
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: review-${{ github.event.pull_request.head.sha }}
+          path: /tmp/review/review.md
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # Posts the report with a write token and no model key.
+  publish:
+    needs: review
+    if: always() && needs.review.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: opencode-review-publish-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          name: review-${{ github.event.pull_request.head.sha }}
+          path: review
       - name: Post the review
-        if: always() && steps.review.outcome != 'skipped'
         env:
           GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RESULT: ${{ needs.review.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          OUTCOME: ${{ steps.review.outcome }}
         run: |
-          if [ "$OUTCOME" = success ] && [ -s /tmp/review/review.md ]; then
-            body=$(cat /tmp/review/review.md)
+          if [ "$RESULT" = success ] && [ -s review/review.md ]; then
+            body=$(cat review/review.md)
           else
-            body="**Авторевью не сформировало отчёт** (${OUTCOME}) для ${HEAD_SHA}. Нужен человек, см. лог."
+            body="**Авторевью не сформировало отчёт** (${RESULT}) для \`${HEAD_SHA}\`. Нужен человек, см. лог."
           fi
-          printf '%s\n\n[Прогон авторевью](%s)\n' "$body" "$RUN_URL" > /tmp/review/comment.md
-          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file /tmp/review/comment.md
+          printf '%s\n\n[Прогон авторевью](%s)\n' "$body" "$RUN_URL" > comment.md
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file comment.md

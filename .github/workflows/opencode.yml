@@ -14,9 +14,8 @@ on:
 permissions: {}
 
 jobs:
-  # Gate before any model call: refuse fork PRs and check the run budget of the PR.
-  budget:
-    name: budget #${{ github.event.issue.number || github.event.pull_request.number }}
+  agent:
+    name: agent #${{ github.event.issue.number || github.event.pull_request.number }}
     # Run only for a command from a trusted participant, never for a bot,
     # and never for a line comment on a PR from a fork.
     if: >-
@@ -26,18 +25,26 @@ jobs:
       (github.event_name != 'pull_request_review_comment' ||
         github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    # Budget checks of one PR go one after another.
+    # implement-spec runs a whole ticket graph, so it gets more time than a reply.
+    timeout-minutes: 45
+    # One run at a time per issue or PR; a new command waits for the previous one.
+    # The budget check below runs inside this group, so two commands cannot both pass it.
     concurrency:
-      group: opencode-budget-${{ github.event.issue.number || github.event.pull_request.number }}
+      group: opencode-${{ github.event.issue.number || github.event.pull_request.number }}
       cancel-in-progress: false
-    # Reads the Actions history, which the agent's App token cannot rewrite.
+    # Standard OpenCode auth: the agent acts with the OpenCode GitHub App token, obtained
+    # through the OIDC exchange. actions: read counts the budget in the Actions history,
+    # which the App token cannot rewrite; pull-requests: read checks the PR head repository.
     permissions:
+      contents: read
+      id-token: write
       actions: read
       pull-requests: read
     outputs:
-      allowed: ${{ steps.count.outputs.allowed }}
-      used: ${{ steps.count.outputs.used }}
+      allowed: ${{ steps.budget.outputs.allowed }}
+      used: ${{ steps.budget.outputs.used }}
+      # "infra" until the agent itself starts, so the report can tell a setup failure apart.
+      stage: ${{ steps.start.outputs.stage || 'infra' }}
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
@@ -58,11 +65,11 @@ jobs:
             exit 1
           fi
 
-      # Every admitted request to the agent on a PR counts: an "agent #N" job that started,
-      # whatever its end (success, failure, cancel, timeout), including earlier attempts of
-      # re-runs. Plain issues have no budget.
-      - name: Count agent runs on this PR
-        id: count
+      # Every admitted request to the agent on a PR counts: an earlier "agent #N" job that
+      # started, whatever its end (success, failure, cancel, timeout), including earlier
+      # attempts of re-runs. Plain issues have no budget.
+      - name: Check the run budget of the PR
+        id: budget
         run: |
           if [ "$IS_PR" != true ]; then
             echo "allowed=true" >> "$GITHUB_OUTPUT"
@@ -72,38 +79,21 @@ jobs:
           used=0
           for run in $(gh api --paginate "repos/$REPO/actions/workflows/opencode.yml/runs?per_page=100" --jq '.workflow_runs[].id'); do
             n=$(gh api --paginate "repos/$REPO/actions/runs/$run/jobs?filter=all&per_page=100" \
-              --jq "[.jobs[] | select(.name == \"agent #$NUMBER\" and .started_at != null and .conclusion != \"skipped\")] | length")
+              --jq "[.jobs[] | select(.name == \"agent #$NUMBER\" and .started_at != null and .conclusion != \"skipped\"
+                and (.run_id != $GITHUB_RUN_ID or .run_attempt < $GITHUB_RUN_ATTEMPT))] | length")
             for c in $n; do used=$((used + c)); done
           done
-          echo "Agent runs on PR #$NUMBER so far: $used of $BUDGET"
+          echo "Agent runs on PR #$NUMBER before this one: $used of $BUDGET"
           echo "used=$used" >> "$GITHUB_OUTPUT"
           if [ "$used" -ge "$BUDGET" ]; then
             echo "allowed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::The run budget of PR #$NUMBER is exhausted ($used of $BUDGET). The model is not called."
           else
             echo "allowed=true" >> "$GITHUB_OUTPUT"
           fi
 
-  agent:
-    name: agent #${{ github.event.issue.number || github.event.pull_request.number }}
-    needs: budget
-    if: needs.budget.outputs.allowed == 'true'
-    runs-on: ubuntu-latest
-    # implement-spec runs a whole ticket graph, so it gets more time than a reply.
-    timeout-minutes: 45
-    # One run at a time per issue or PR; a new command waits for the previous one.
-    concurrency:
-      group: opencode-${{ github.event.issue.number || github.event.pull_request.number }}
-      cancel-in-progress: false
-    # Standard OpenCode auth: the agent acts with the OpenCode GitHub App token,
-    # obtained through the OIDC exchange.
-    permissions:
-      contents: read
-      id-token: write
-    outputs:
-      # "infra" until the agent itself starts, so the report can tell a setup failure apart.
-      stage: ${{ steps.start.outputs.stage || 'infra' }}
-    steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.budget.outputs.allowed == 'true'
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -111,12 +101,14 @@ jobs:
       # The runner starts clean: install the skills of the first project globally,
       # the same set as on the developer machine. OpenCode reads ~/.agents/skills.
       - name: Install agent skills
+        if: steps.budget.outputs.allowed == 'true'
         run: >-
           npx --yes skills@1.8.1 add
           mattpocock/skills@5863806dd4e15c63174bee4e7515a4256792ecfa
           --skill '*' --global --agent opencode --yes
 
       - name: Check the model key
+        if: steps.budget.outputs.allowed == 'true'
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
         run: |
@@ -127,9 +119,11 @@ jobs:
 
       - name: Mark the agent start
         id: start
+        if: steps.budget.outputs.allowed == 'true'
         run: echo "stage=agent" >> "$GITHUB_OUTPUT"
 
       - uses: anomalyco/opencode/github@77fc88c8ade8e5a620ebbe1197f3a572d29ae91a # latest
+        if: steps.budget.outputs.allowed == 'true'
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           # Nobody answers permission prompts on a runner, and an "ask" rule hangs the run
@@ -150,16 +144,17 @@ jobs:
   # Reports why the agent did not answer, without calling the model. Runs after the agent
   # job has stopped, so the reason is final.
   report:
-    needs: [budget, agent]
+    needs: agent
     if: >-
-      always() && needs.budget.result == 'success' &&
-      (needs.budget.outputs.allowed == 'false' || needs.agent.result == 'failure' || needs.agent.result == 'cancelled')
+      always() && needs.agent.result != 'skipped' &&
+      (needs.agent.outputs.allowed == 'false' || needs.agent.result == 'failure' || needs.agent.result == 'cancelled')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     concurrency:
       group: opencode-report-${{ github.run_id }}
       cancel-in-progress: false
     permissions:
+      contents: read
       actions: read
       issues: write
       pull-requests: write
@@ -169,8 +164,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
-          ALLOWED: ${{ needs.budget.outputs.allowed }}
-          USED: ${{ needs.budget.outputs.used }}
+          ALLOWED: ${{ needs.agent.outputs.allowed }}
+          USED: ${{ needs.agent.outputs.used }}
           AGENT_RESULT: ${{ needs.agent.result }}
           STAGE: ${{ needs.agent.outputs.stage }}
           RUN_ID: ${{ github.run_id }}
@@ -195,9 +190,12 @@ jobs:
             details="Агент завершился с ошибкой."
           else
             reason=infra
-            details="Сбой подготовки: установка скиллов, ключ модели или checkout."
+            details="Сбой подготовки: проверка бюджета, checkout, установка скиллов или ключ модели."
           fi
-          sha=$(gh api "repos/$REPO/pulls/$NUMBER" --jq .head.sha 2>/dev/null || gh api "repos/$REPO/commits/HEAD" --jq .sha)
+          # A PR reports its head; a plain issue reports the head of the default branch.
+          if ! sha=$(gh api "repos/$REPO/pulls/$NUMBER" --jq .head.sha 2>/dev/null); then
+            sha=$(gh api "repos/$REPO/commits/HEAD" --jq .sha)
+          fi
           {
             echo "**Агент не ответил: \`$reason\`. Нужен человек.**"
             echo

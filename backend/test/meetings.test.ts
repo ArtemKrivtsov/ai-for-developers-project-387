@@ -67,10 +67,12 @@ test.each([
   expect(response.json()).toMatchObject({ topic: expected });
 });
 
-test('a topic of exactly 500 characters is accepted', async () => {
+test.each([
+  ['characters', 'я'.repeat(500)],
+  ['emoji', '😀'.repeat(500)],
+])('a topic of exactly 500 %s is accepted', async (_case, topic) => {
   const app = buildTestApp({ now: monday });
   const meetingType = await createMeetingType(app);
-  const topic = 'я'.repeat(500);
 
   const response = await createMeeting(app, meetingType.id, {
     start: '2026-11-10T09:00:00+03:00',
@@ -79,6 +81,23 @@ test('a topic of exactly 500 characters is accepted', async () => {
 
   expect(response.statusCode).toBe(201);
   expect(response.json()).toMatchObject({ topic });
+});
+
+test('a topic of 501 emoji is rejected by its length in characters, not UTF-16 units', async () => {
+  const app = buildTestApp({ now: monday });
+  const meetingType = await createMeetingType(app);
+
+  const response = await createMeeting(app, meetingType.id, {
+    start: '2026-11-10T09:00:00+03:00',
+    topic: '😀'.repeat(501),
+  });
+
+  expect(response.statusCode).toBe(400);
+  expect(response.json()).toEqual({
+    code: 'validation_error',
+    message: expect.any(String),
+    field: 'topic',
+  });
 });
 
 test('creating a meeting of an unknown meeting type fails with meeting_type_not_found', async () => {

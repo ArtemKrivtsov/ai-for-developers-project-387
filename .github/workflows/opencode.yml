@@ -15,7 +15,8 @@ permissions: {}
 
 jobs:
   agent:
-    name: agent #${{ github.event.issue.number || github.event.pull_request.number }}
+    # Quoted: in plain YAML " #" starts a comment and the name would be just "agent".
+    name: 'agent #${{ github.event.issue.number || github.event.pull_request.number }}'
     # Run only for a command from a trusted participant, never for a bot,
     # and never for a line comment on a PR from a fork.
     if: >-

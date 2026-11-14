@@ -21,6 +21,11 @@ local fast = new Mapping<String, Step> {
     )
   }
   ["jactionlint"] = Builtins.jactionlint
+  // jactionlint misses it: an unquoted " #" in a job name starts a YAML comment.
+  ["workflow-names"] {
+    glob = List(".github/workflows/*.yml")
+    check = "scripts/check-workflow-names.sh {{files}}"
+  }
 }
 
 local all = (fast) {

@@ -10,7 +10,7 @@
 - `mise run lint`, `mise run test`: линтеры и тесты по отдельности. В `mise run test` входят API- и компонентные тесты, браузерные запускает шаг `e2e`.
 - `pnpm --dir backend exec vitest run test/health.test.ts -t "<имя теста>"`: один тест, во фронтенде так же через `--dir frontend`.
 - `pnpm --dir e2e exec playwright test -g "<имя теста>"`: один браузерный тест. Playwright сам собирает фронтенд и запускает сервер на свободном порту.
-- `hk check --all -S <step>`: один шаг проверок (`oxlint`, `oxfmt`, `jactionlint`, `generated`, `typecheck`, `test`, `build`, `e2e`, `image`).
+- `hk check --all -S <step>`: один шаг проверок (`oxlint`, `oxfmt`, `jactionlint`, `workflow-names`, `generated`, `typecheck`, `test`, `build`, `e2e`, `image`).
 - `mise run check`: все проверки, тот же набор запускает CI и pre-push. Нужен запущенный Docker: шаг `image` собирает образ и проверяет контейнер. Изменение готово, когда команда зелёная.
 - `mise run fix`: автоисправления линтеров и форматтера.
 

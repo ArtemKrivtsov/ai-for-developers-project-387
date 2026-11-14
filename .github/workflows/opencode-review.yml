@@ -139,6 +139,22 @@ jobs:
           RESULT: ${{ needs.review.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          # A review cancelled by a newer push is stale, not failed: the new run reports.
+          if [ "$RESULT" = cancelled ]; then
+            current=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)
+            if [ "$current" != "$HEAD_SHA" ]; then
+              echo "The review of $HEAD_SHA was superseded by $current, nothing to post."
+              exit 0
+            fi
+          fi
+          # A review cancelled by a newer push is stale, not failed: the new run reports.
+          if [ "$RESULT" = cancelled ]; then
+            current=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)
+            if [ "$current" != "$HEAD_SHA" ]; then
+              echo "The review of $HEAD_SHA was superseded by $current, nothing to post."
+              exit 0
+            fi
+          fi
           if [ "$RESULT" = success ] && [ -s review/review.md ]; then
             body=$(cat review/review.md)
           else

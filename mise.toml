@@ -27,7 +27,7 @@ run = ["pnpm --dir spec build", "pnpm --dir backend generate", "pnpm --dir front
 
 [tasks.lint]
 description = "Run linters and the formatter check"
-run = "hk check --all -S oxlint -S oxfmt -S jactionlint"
+run = "hk check --all -S oxlint -S oxfmt -S jactionlint -S workflow-names"
 
 [tasks.test]
 description = "Run tests"

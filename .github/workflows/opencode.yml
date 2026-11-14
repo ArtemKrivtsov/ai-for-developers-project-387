@@ -77,8 +77,15 @@ jobs:
             echo "used=0" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # An assignment fails the step on an API error; a bare "for x in $(...)" would not,
+          # and an empty history would silently allow the run.
+          runs=$(gh api --paginate "repos/$REPO/actions/workflows/opencode.yml/runs?per_page=100" --jq '.workflow_runs[].id')
+          if [ -z "$runs" ]; then
+            echo "::error::The Actions history of opencode.yml is empty, the budget cannot be checked."
+            exit 1
+          fi
           used=0
-          for run in $(gh api --paginate "repos/$REPO/actions/workflows/opencode.yml/runs?per_page=100" --jq '.workflow_runs[].id'); do
+          for run in $runs; do
             n=$(gh api --paginate "repos/$REPO/actions/runs/$run/jobs?filter=all&per_page=100" \
               --jq "[.jobs[] | select(.name == \"agent #$NUMBER\" and .started_at != null and .conclusion != \"skipped\"
                 and (.run_id != $GITHUB_RUN_ID or .run_attempt < $GITHUB_RUN_ATTEMPT))] | length")

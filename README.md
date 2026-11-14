@@ -80,6 +80,7 @@ mise run check       # все проверки, те же, что в CI
 | [`opencode-triage.yml`](.github/workflows/opencode-triage.yml) | `issues`, только `opened`                                               | `opencode/deepseek-v4.1-flash-free` | Предварительный разбор нового обращения по скиллу `triage`: что уже умеет приложение, вопросы автору, метка `needs-info` или `needs-triage` | Комментарий от `opencode-agent` в новом issue и метка на нём, лог во вкладке [Actions](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/actions/workflows/opencode-triage.yml)      |
 | [`opencode-review.yml`](.github/workflows/opencode-review.yml) | `pull_request`: `opened`, `synchronize`, `reopened`, `ready_for_review` | `opencode/deepseek-v4.1-flash-free` | Независимое авторевью PR по критериям [`REVIEW.md`](REVIEW.md): сверка со спецификацией, тикетами, diff и CI. Код не меняет                 | Комментарий «Авторевью» от `github-actions` в PR, лог во вкладке [Actions](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/actions/workflows/opencode-review.yml)                  |
 | [`pr-e2e.yml`](.github/workflows/pr-e2e.yml)                   | `pull_request`: те же типы                                              | без модели                          | Браузерные сценарии на точном head SHA PR с записью trace                                                                                   | Артефакт `e2e-<sha>` с `sha.txt`, `result.txt`, trace и HTML-отчётом Playwright, итог в Summary прогона                                                                                           |
+| [`audit.yml`](.github/workflows/audit.yml)                     | `schedule` раз в сутки и `workflow_dispatch`                            | `opencode/deepseek-v4.1-flash-free` | Аудит Lighthouse развёрнутого приложения: отчёт, issue по новой находке без дублей                                                          | Артефакт `audit-report-<run_id>`, комментарий в журнале #18, issue с меткой `audit`                                                                                                               |
 
 Как вызвать: написать в issue или PR комментарий с командой, например `/oc explain this issue` или `/oc запусти скилл to-spec по обсуждению этого issue`.
 
@@ -150,6 +151,19 @@ mise run check       # все проверки, те же, что в CI
 ### Шаблон PR и защита `main`
 
 Описание PR заполняется по [шаблону](.github/pull_request_template.md): связи с обращением, спецификацией, тикетами и согласованием, проверки с командами, прогонами и SHA, риск и способ отката. Мерж в `main` возможен только после успешного `check`, это требует защита ветки.
+
+### Регулярный аудит
+
+Воркфлоу [`audit.yml`](.github/workflows/audit.yml) раз в сутки, в 06:17 по Москве (`schedule` с `timezone: Europe/Moscow`), проверяет развёрнутое приложение. Его можно запустить и вручную: Actions → audit → Run workflow (`workflow_dispatch`). Режим `live` проверяет адрес из переменной репозитория `APP_URL`, режим `training` берёт подготовленный учебный отчёт `audit/fixtures/training-report.json` с известной находкой.
+
+1. **Сбор данных без модели.** Задание `collect` будит приложение на Render, запускает Lighthouse и сводит отчёт скриптом `audit/summarize.mjs`. В находки попадают проверки из четырёх основных категорий с ненулевым весом и оценкой ниже 90, у каждой есть стабильный отпечаток вида `lighthouse:<audit-id>`. Если приложение не ответило, отчёт так и говорит: «нет данных», а не «находок нет». Полный отчёт (JSON и HTML) и сводка сохраняются артефактом `audit-report-<run_id>` на 90 дней. Отчёты лежат вне рабочего дерева, а `.audit/` в `.gitignore`, поэтому в коммиты они не попадают.
+2. **Разбор агентом.** Задание `agent` запускает OpenCode CLI с инструкцией в `prompt`. Для каждой находки агент ищет задачу с тем же отпечатком (`gh issue list --label audit --search`). Если открытая задача уже есть, он ничего не создаёт. Если задачи нет, он заводит одну issue с метками `audit` и `needs-triage`: проблема, проверенное приложение, предлагаемое действие, ссылка на прогон и отпечаток. Если задача была закрыта, агент заводит новую со ссылкой на прежнюю. Учебные находки получают метку `учебный` и префикс `[Учебный]`.
+3. **Вывод.** Итог каждого запуска агент пишет комментарием в [журнал аудита #18](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/issues/18) и в Summary прогона. Так вывод не пропадает вместе с артефактом.
+
+- **Права:** у `collect` только `contents: read`. У `agent` `contents: read` и `issues: write` для токена раннера: агент создаёт и комментирует issue, код и PR не трогает, поэтому `contents: write` и OIDC ему не нужны. Из команд агенту разрешены только `gh issue list/view/create/comment` и `gh label list`, без `--output` и перенаправления. Писать он может только файл своего вывода.
+- **Ограничения:** не чаще раза в сутки, тайм-ауты 15 и 20 минут, `concurrency: audit` пускает по одному аудиту за раз.
+- **Когда ждать запуск:** расписание работает, только пока файл лежит в `main` и воркфлоу включён. GitHub может задержать или пропустить запуск по расписанию, а в публичном репозитории отключает его после 60 дней без активности. Проверять сценарий можно ручным запуском.
+- Найденная задача остаётся входящим обращением: брать ли её в работу, решает человек, дальше применяется цепочка `to-spec` → `to-tickets` → `implement-spec`.
 
 ### Настройки воркфлоу
 

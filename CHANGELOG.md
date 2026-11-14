@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/compare/v0.1.0...v0.2.0) (2026-11-14)
+
+
+### Features
+
+* move the call calendar app from project 386 ([c741c0f](https://github.com/ArtemKrivtsov/ai-for-developers-project-387/commit/c741c0f13bdcf34d73260540a5e67e1b7dd430c2))
+
 ## 0.1.0 (2026-11-09)
 
 
